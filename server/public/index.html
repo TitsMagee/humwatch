@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<title>Live hum monitor</title>
+<meta name="description" content="Live readings of a constant low-frequency hum: whether it is running, how far it sits above the background, and which tones it is made of.">
+<meta name="theme-color" content="#15233a">
+<link rel="preload" href="assets/fonts/bricolage-grotesque-latin-standard-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/style.css">
+<script type="module" src="assets/site.js"></script>
+</head>
+<body>
+
+<p id="demo-banner" class="demo-banner" hidden>Sample data for previewing this page. These are not real readings.</p>
+
+<main>
+  <section class="now" aria-labelledby="status-headline">
+    <p class="site-title" id="site-title">Live hum monitor</p>
+    <div class="status" aria-live="polite">
+      <h1 id="status-headline">Checking the latest reading</h1>
+      <p class="status-detail" id="status-detail">This page needs JavaScript to show live readings.</p>
+      <p class="status-time" id="status-time"></p>
+    </div>
+    <canvas id="wave" class="wave" aria-hidden="true"></canvas>
+
+    <div class="listen" id="listen-now">
+      <div class="listen-actions">
+        <button type="button" id="play-now">Play the hum</button>
+        <button type="button" id="play-background" class="quiet">Play the background</button>
+        <button type="button" id="toggle-source" class="quiet" aria-pressed="false" hidden></button>
+        <label class="volume" for="volume">Volume
+          <input id="volume" type="range" min="0" max="100" value="35">
+        </label>
+      </div>
+      <p class="listen-status" id="listen-status" role="status"></p>
+      <p class="note">Use headphones or proper speakers, as phone and laptop speakers can't reproduce most of these frequencies. Start quietly. Your volume setting decides how loud this is, so it shows the character of the sound and the balance of its tones, not its real loudness.</p>
+      <p class="note">The background is an illustration: a low rumble at the measured level, with synthesised birdsong added for scale.</p>
+    </div>
+  </section>
+
+  <section class="tones" aria-labelledby="tones-heading" id="tones-section">
+    <h2 id="tones-heading">What the hum is made of</h2>
+    <p id="tones-summary">Each mark is one tone in the hum. The taller it is, the further it stands above the background.</p>
+    <figure class="chart-frame">
+      <div id="tone-chart" class="tone-chart"></div>
+      <div id="tone-tip" class="tone-tip" hidden></div>
+      <figcaption id="tone-legend"></figcaption>
+    </figure>
+    <details class="table-view">
+      <summary>Show these figures as a table</summary>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th scope="col">Frequency</th><th scope="col">Above background</th><th scope="col">In this reading</th></tr></thead>
+          <tbody id="tone-table"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="record" aria-labelledby="history-heading">
+    <h2 id="history-heading">How long it keeps going</h2>
+    <div id="history-empty"><p>The history starts once monitoring has been running for a while.</p></div>
+    <dl class="facts" id="history-facts" hidden>
+      <div id="fact-current"><dt id="current-label"></dt><dd id="current-value"></dd><p id="current-note"></p></div>
+      <div id="fact-longest"><dt>Longest unbroken run</dt><dd id="longest-value"></dd><p id="longest-note"></p></div>
+      <div id="fact-share"><dt id="share-label"></dt><dd id="share-value"></dd><p id="share-note"></p></div>
+    </dl>
+
+    <div class="loudest" id="loudest" hidden>
+      <h3>The loudest it has been</h3>
+      <p class="loudest-line" id="loudest-line"></p>
+      <p id="loudest-when"></p>
+      <div class="loudest-actions">
+        <button type="button" id="play-record">Play it against the background</button>
+        <button type="button" id="toggle-record" class="outline" aria-pressed="false" hidden></button>
+      </div>
+      <p class="record-status" id="record-status" role="status"></p>
+    </div>
+  </section>
+
+  <section class="research" aria-labelledby="research-heading">
+    <h2 id="research-heading">What the research says</h2>
+    <p>Studies of long-term low-frequency noise are few, and they don't settle what it does to health. Most look at annoyance. These are good places to start. None of them studied this hum, and the readings on this page can't show any effect on anyone's health.</p>
+    <ul class="studies">
+      <li>
+        <a href="https://pubmed.ncbi.nlm.nih.gov/26994804/">Health effects from low-frequency noise and infrasound in the general population: is it time to listen?</a>
+        <p>Baliatsas and others, 2016, Science of the Total Environment. A systematic review of seven studies. It found links with annoyance, sleep problems, poor concentration and headaches in adults living near low-frequency sources. The authors call the evidence scarce and limited, especially for long-term illness.</p>
+      </li>
+      <li>
+        <a href="https://core.ac.uk/download/161113199.pdf">A review of published research on low frequency noise and its effects</a>
+        <p>Leventhall, Pelmear and Benton, 2003. A review of the research, written for the UK government's environment department.</p>
+      </li>
+      <li>
+        <a href="https://salford-repository.worktribe.com/output/1473677/proposed-criteria-for-the-assessment-of-low-frequency-noise-disturbance">Proposed criteria for the assessment of low frequency noise disturbance</a>
+        <p>Moorhouse, Waddington and Adams, University of Salford, 2005. Written for the same UK department, and still cited as guidance for assessing low-frequency noise.</p>
+      </li>
+      <li>
+        <a href="https://www.who.int/publications/i/item/9789289053563">Environmental noise guidelines for the European Region</a>
+        <p>World Health Organization, 2018. These cover traffic, wind turbine and leisure noise, not industrial hum, but they are the main reference on long-term noise and health.</p>
+      </li>
+    </ul>
+  </section>
+
+  <section class="method" aria-labelledby="method-heading">
+    <h2 id="method-heading">How these readings work</h2>
+    <p>A microphone outside listens all day and night. Every minute, a small computer works out which of the hum's known tones are present, and how far they stand above a reference taken while the source was stopped.</p>
+    <ul>
+      <li id="method-calibration">These figures compare readings from the same microphone. They are not a certified noise measurement, and they are not dB(A).</li>
+      <li>Passing planes, traffic and other short sounds are largely filtered out, because they don't produce the same steady set of tones.</li>
+      <li>A change takes several minutes to show here, and start and stop times are approximate.</li>
+      <li>When the readings can't be trusted, this page says so rather than guessing.</li>
+    </ul>
+    <p>No audio is published on this site. The sounds above are generated in your browser from the measured figures.</p>
+    <p id="source-link"></p>
+  </section>
+</main>
+
+</body>
+</html>

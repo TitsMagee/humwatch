@@ -1,0 +1,19 @@
+{
+  "generated_at": 1800000000,
+  "calibrated": false,
+  "monitoring_since": 1797000000,
+  "current_run": { "state": "on", "provisional": false, "after_gap": false, "start_t": 1799510000, "end_t": 1800000000 },
+  "longest_run": { "start_t": 1798000000, "end_t": 1798700000, "ended_by": "data_gap" },
+  "record": {
+    "t": 1798300000,
+    "l90": -44.7,
+    "excess": 13.3,
+    "tones": [
+      { "low": 58, "high": 62, "hz": 60.5, "db": -55.0, "excess": 21.0, "present": true },
+      { "low": 88, "high": 90, "hz": 89.0, "db": -51.0, "excess": 27.0, "present": true },
+      { "low": 118, "high": 122, "hz": 120.0, "db": -48.0, "excess": 32.0, "present": true },
+      { "low": 176, "high": 178, "hz": 177.5, "db": -53.0, "excess": 24.0, "present": true }
+    ]
+  },
+  "recent": { "since": 1797408000, "on_percent": 96.4, "minutes_on": 40250, "minutes_off": 1500, "minutes_unknown": 1450 }
+}

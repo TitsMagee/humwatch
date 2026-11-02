@@ -1,0 +1,92 @@
+{
+  "_comment": "Copy to config.json. Keys starting with _ are ignored. Thresholds are starting points from one site: re-check them at yours (docs/DESIGN.md).",
+
+  "mic_period": "2026-01-example",
+  "_mic_period_comment": "Change this whenever the mic, its position, its housing or its gain changes. Levels are not comparable across periods, and the baseline stops applying.",
+
+  "audio": {
+    "device_name": "",
+    "_device_name_comment": "Part of the name shown by 'humwatch list-devices'. Empty uses the default input.",
+    "sample_rate": 48000,
+    "channels": 1
+  },
+
+  "analysis": {
+    "band_hz": [30, 260],
+    "wide_hz": [500, 5000],
+    "sub_hz": [5, 25]
+  },
+
+  "calibration": {
+    "file": "",
+    "_file_comment": "Path to the mic's calibration file. Corrects frequency response.",
+    "spl_offset_db": null,
+    "_spl_offset_comment": "dB SPL = dBFS + this offset. Leave null until measured: levels are then published as relative only."
+  },
+
+  "fingerprint": {
+    "_comment": "Tone groups in Hz, from 'humwatch learn'. Each group is the frequency range one tone drifts within.",
+    "tone_groups": [],
+    "excess_db": 8.0,
+    "prominence_db": 6.0
+  },
+
+  "detector": {
+    "window_minutes": 15,
+    "min_groups": 2,
+    "on_fraction": 0.5,
+    "off_fraction": 0.15,
+    "off_level_drop_db": 3.0,
+    "reference_days": 7,
+    "validated": false,
+    "_validated_comment": "Set true only after the detector has been checked against stops you confirmed yourself. Until then every OFF is marked provisional."
+  },
+
+  "health": {
+    "floor_db": -100.0,
+    "_floor_comment": "A band L90 below this is a mic fault. Set it between the unplugged reading and the quietest real background.",
+    "below_baseline_db": 10.0,
+    "_below_baseline_comment": "A band L90 this far under the stopped baseline is a mic fault, not a quiet night.",
+    "clip_fraction": 0.01
+  },
+
+  "wind": {
+    "sub_excess_db": 15.0,
+    "_comment": "Experimental: not yet tested against measured wind."
+  },
+
+  "clips": {
+    "enabled": false,
+    "_enabled_comment": "Clips can capture voices. Read docs/DESIGN.md (Privacy) and check your local law before turning this on.",
+    "rise_db": 10.0,
+    "min_seconds": 3,
+    "pre_seconds": 15,
+    "post_seconds": 45,
+    "decimation": 4,
+    "max_per_day": 40,
+    "min_gap_seconds": 300,
+    "retention_days": 30,
+    "min_free_mb": 1000
+  },
+
+  "paths": {
+    "data_dir": "data",
+    "baseline": "data/baseline.json",
+    "spectra_retention_days": 120
+  },
+
+  "upload": {
+    "url": "",
+    "_url_comment": "Base URL of the site, e.g. https://example.org. Empty logs locally and uploads nothing.",
+    "secret": "",
+    "_secret_comment": "Same value as ingest_secret on the server, at least 32 random characters.",
+    "live_interval_seconds": 10,
+    "batch_minutes": 500,
+    "timeout_seconds": 20
+  },
+
+  "clock": {
+    "require_ntp_sync": true,
+    "_comment": "A Pi has no battery clock and boots with a stale time, so nothing is logged until NTP has synced."
+  }
+}

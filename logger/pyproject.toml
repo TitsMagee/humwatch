@@ -1,0 +1,23 @@
+[project]
+name = "humwatch"
+version = "0.1.0"
+description = "Continuous low-frequency hum logger for a Raspberry Pi"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10", "sounddevice>=0.4.5", "soundfile>=0.12"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+humwatch = "humwatch.cli:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["humwatch"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,18 @@
+[Unit]
+Description=HumWatch hum logger
+# A Pi has no battery clock: wait for NTP so that no row carries a stale time
+Wants=time-sync.target network-online.target
+After=time-sync.target network-online.target sound.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/humwatch/logger
+ExecStart=/home/pi/humwatch/logger/venv/bin/humwatch --config config.json run
+Restart=always
+RestartSec=10
+# Analysis must keep up with the audio, so stay ahead of anything else on the Pi
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target

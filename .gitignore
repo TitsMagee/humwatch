@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+venv/
+.venv/
+
+# Site-specific: never commit these
+logger/config.json
+logger/data/
+*.db
+*.db-wal
+*.db-shm
+*.flac
+*.wav
+calibration/
+server/config.php
+server/clips/
+server/public/data/*.json
+server/public/site.json
+.env

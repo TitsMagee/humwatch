@@ -66,6 +66,16 @@ The tones and baseline are specific to each site, and you need at least one stop
 3. Run `humwatch --config config.json baseline --stops stops.csv`, then `learn --stops stops.csv`, and add the tone groups to `config.json`.
 4. After more confirmed stops, run `validate --stops stops.csv` to see how well the detector does. Only then set `detector.validated` to true.
 
+### Adding older readings
+
+If you logged readings before using HumWatch, convert them to a file with one JSON row per minute, in the same form as the logger's minute rows, under their own `mic_period`. Then send them, before live logging starts, because the server rolls minutes up in order:
+
+```sh
+humwatch --config config.json send-archive old-readings.jsonl
+```
+
+If it stops partway, it tells you the `--skip` value to resume from. Add a `history_note` to `site.json` saying where the readings came from. Rows must be under 400 days old.
+
 ## What it can't tell you
 
 Read this before publishing anything:

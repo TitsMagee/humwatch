@@ -243,6 +243,8 @@ th { font-weight: 600; color: var(--mist-muted); }
 
 .record, .research, .method { padding: clamp(2.5rem, 6vw, 5rem) var(--gutter); }
 
+.history-note { margin-top: 0.75rem; max-width: var(--measure); }
+
 .facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));

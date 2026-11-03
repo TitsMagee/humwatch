@@ -33,6 +33,11 @@ export function dateTime(seconds, timeZone) {
   }).format(new Date(seconds * 1000));
 }
 
+export function dateOnly(seconds, timeZone) {
+  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone })
+    .format(new Date(seconds * 1000));
+}
+
 function excessLine(excess) {
   if (excess === null || excess === undefined) {
     return "Its level can't be compared with the background until a reference has been taken during a stop.";
@@ -42,8 +47,15 @@ function excessLine(excess) {
 }
 
 // What the headline should say. numbers: whether level figures can be trusted right now.
-export function status(live, label, now) {
+export function status(live, label, now, hasHistory = false) {
   const name = capitalise(label);
+  if (!live && hasHistory) {
+    return {
+      kind: "none", numbers: false,
+      headline: "No live readings at the moment",
+      detail: `Earlier readings are further down this page. This says nothing about ${label} right now.`,
+    };
+  }
   if (!live) {
     return {
       kind: "none", numbers: false,
@@ -131,10 +143,11 @@ export function runningShare(history) {
   const recent = history && history.recent;
   if (!recent || recent.on_percent === null || recent.on_percent === undefined) return null;
   const known = recent.minutes_on + recent.minutes_off;
-  const days = Math.max(1, Math.round((history.generated_at - recent.since) / 86400));
+  const days = Math.max(1, Math.round(((recent.until ?? history.generated_at) - recent.since) / 86400));
   const unclear = recent.minutes_unknown;
+  const span = days === 1 ? "day" : `${days} days`;
   return {
-    label: days === 1 ? "Share of the past day running" : `Share of the past ${days} days running`,
+    label: history.monitoring_stopped ? `Share of the last ${span} logged, running` : `Share of the past ${span} running`,
     value: `${recent.on_percent.toFixed(1)}%`,
     note: unclear
       ? `Based on ${duration(known * 60)} of clear readings. ${capitalise(duration(unclear * 60))} of unclear readings are left out.`

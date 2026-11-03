@@ -32,6 +32,16 @@ export function mixLevels(tones, baseDb) {
   };
 }
 
+// Whether tones plus background add up to the measured level. If they fall well short, the
+// level came mostly from something else, and playing the tones would misrepresent it.
+export function tonesExplainLevel(tones, baseDb, levelDb, toleranceDb = 3) {
+  if (baseDb === null || baseDb === undefined || levelDb === null || levelDb === undefined) return false;
+  const power = (tones || [])
+    .filter((tone) => tone.present && tone.db !== null && tone.db !== undefined)
+    .reduce((sum, tone) => sum + 10 ** (tone.db / 10), 10 ** (baseDb / 10));
+  return Math.abs(10 * Math.log10(power) - levelDb) <= toleranceDb;
+}
+
 // A mix with the tones alone, for hearing the hum by itself.
 export function humOnlyLevels(tones) {
   return mixLevels(tones, null);

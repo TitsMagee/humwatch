@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { humOnlyLevels, mixLevels, toneAmplitudes } from "../public/assets/audio.js";
+import { humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "../public/assets/audio.js";
 import { currentRun, duration, longestRun, runningShare, signedDb, status } from "../public/assets/format.js";
 
 const NOW = 1800000000;
@@ -99,6 +99,36 @@ test("share leaves out unclear readings and says so", () => {
   assert.equal(share.value, "96.4%");
   assert.equal(share.label, "Share of the past 30 days running");
   assert.match(share.note, /left out/);
+});
+
+test("share of readings that have ended counts back from the last one", () => {
+  const share = runningShare({
+    generated_at: NOW,
+    monitoring_stopped: true,
+    recent: { since: NOW - 40 * 86400, until: NOW - 10 * 86400, on_percent: 96, minutes_on: 96, minutes_off: 4, minutes_unknown: 0 },
+  });
+  assert.equal(share.label, "Share of the last 30 days logged, running");
+});
+
+test("no live reading with history doesn't claim monitoring never began", () => {
+  const result = status(null, "the mill", NOW, true);
+  assert.equal(result.headline, "No live readings at the moment");
+  assert.match(result.detail, /says nothing about the mill/);
+  assert.equal(result.numbers, false);
+});
+
+test("a level the tones can't explain isn't offered as playback", () => {
+  const tones = [{ hz: 100, db: -58, present: true }];
+  assert.equal(tonesExplainLevel(tones, -51, -32), false);
+});
+
+test("a level the tones do explain can be played", () => {
+  const tones = [{ hz: 100, db: -45, present: true }, { hz: 120, db: -45, present: true }];
+  assert.equal(tonesExplainLevel(tones, -50, -41), true);
+});
+
+test("no background figure means no comparison can be played", () => {
+  assert.equal(tonesExplainLevel([{ hz: 100, db: -45, present: true }], null, -41), false);
 });
 
 test("only tones that are present are played", () => {

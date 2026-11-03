@@ -61,6 +61,7 @@
 
   <section class="record" aria-labelledby="history-heading">
     <h2 id="history-heading">How long it keeps going</h2>
+    <p class="history-note" id="history-note" hidden></p>
     <div id="history-empty"><p>The history starts once monitoring has been running for a while.</p></div>
     <dl class="facts" id="history-facts" hidden>
       <div id="fact-current"><dt id="current-label"></dt><dd id="current-value"></dd><p id="current-note"></p></div>
@@ -72,6 +73,7 @@
       <h3>The loudest it has been</h3>
       <p class="loudest-line" id="loudest-line"></p>
       <p id="loudest-when"></p>
+      <p id="loudest-no-play" hidden>This one can't be played. The steady tones logged at the time don't account for its level, so a generated version would misrepresent it.</p>
       <div class="loudest-actions">
         <button type="button" id="play-record">Play it against the background</button>
         <button type="button" id="toggle-record" class="outline" aria-pressed="false" hidden></button>

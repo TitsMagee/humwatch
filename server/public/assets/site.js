@@ -1,5 +1,5 @@
-import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes } from "./audio.js";
-import { currentRun, dateTime, duration, longestRun, runningShare, signedDb, status } from "./format.js";
+import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
+import { currentRun, dateOnly, dateTime, duration, longestRun, runningShare, signedDb, status } from "./format.js";
 
 const LIVE_REFRESH_MS = 10000;
 const HISTORY_REFRESH_MS = 300000;
@@ -37,7 +37,7 @@ function backgroundDb(reading) {
 
 function renderStatus() {
   const now = Date.now() / 1000;
-  const current = status(live, site.source_label, now);
+  const current = status(live, site.source_label, now, Boolean(history && history.last_t));
   $("status-headline").textContent = current.headline;
   $("status-detail").textContent = current.detail;
   $("status-time").textContent =
@@ -339,6 +339,11 @@ function renderHistory() {
   const any = run || longest || share;
   $("history-empty").hidden = Boolean(any);
   $("history-facts").hidden = !any;
+  const ended = history && history.monitoring_stopped;
+  $("history-note").hidden = !ended;
+  if (ended) {
+    $("history-note").textContent = `These readings end on ${dateOnly(history.last_t)}. ${site.history_note || ""}`.trim();
+  }
   fill("fact-current", run, () => {
     $("current-label").textContent = run.label;
     $("current-value").textContent = run.value;
@@ -355,8 +360,10 @@ function renderHistory() {
   });
 
   const record = history && history.record;
-  const playable = record && record.excess !== null && toneAmplitudes(record.tones).length > 0;
+  const playable = record && record.excess !== null
+    && tonesExplainLevel(record.tones, record.l90 - record.excess, record.l90);
   $("loudest").hidden = !record;
+  $("loudest-no-play").hidden = !record || Boolean(playable);
   if (record) {
     $("loudest-line").textContent = record.excess === null
       ? "Not comparable with the background yet"
@@ -364,7 +371,7 @@ function renderHistory() {
         ? `${record.excess.toFixed(1)} dB above the background`
         : "About the same as the background";
     $("loudest-when").textContent =
-      `The loudest 15 minutes logged with this microphone, on ${dateTime(record.t)}, with ${site.source_label} running throughout and no wind flagged. This is the steady level, so passing sounds don't count.`;
+      `The loudest 15 minutes logged with this microphone, on ${dateTime(record.t)}, with ${site.source_label} running throughout${record.wind_checked === false ? "" : " and no wind flagged"}. This is the steady level, so passing sounds don't count.${record.wind_checked === false ? " Wind wasn't measured for this reading." : ""}`;
     $("play-record").hidden = !playable;
   }
 }
@@ -420,7 +427,9 @@ async function main() {
     $("source-link").replaceChildren(link, ".");
   }
   wireAudio();
-  await Promise.all([refreshLive(), refreshHistory()]);
+  // History first, because the headline depends on whether there is any
+  await refreshHistory();
+  await refreshLive();
   if (live && live.calibrated) {
     $("method-calibration").textContent = "Levels use a calibrated microphone, but this is not a certified measurement, and the figures are not dB(A).";
   }

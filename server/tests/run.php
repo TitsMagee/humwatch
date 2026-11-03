@@ -148,6 +148,16 @@ send($db, $config, ['minutes' => $rows], $later + 1500);
 $history = run_rollup($db, $config, $later + 3000);
 check('backlog after an outage reaches the record', $history['record']['l90'] === 47.0);
 
+// Readings that have stopped: nothing is called current, and the figures stay
+$stoppedAt = $start + 114 * 60 + 2 * 86400;
+$history = build_history($db, $stoppedAt);
+check('an open run is not called current once readings stop', $history['current_run'] === null && $history['monitoring_stopped'] === true);
+check('the last run reads as cut off', $history['longest_run']['ended_by'] === 'off' || $history['longest_run']['ended_by'] === 'data_gap');
+check('figures are kept after readings stop', $history['recent']['on_percent'] !== null && $history['record'] !== null);
+check('wind is reported as checked when logged', $history['record']['wind_checked'] === true);
+$open = $db->query("SELECT start_t FROM runs WHERE ended_by IS NULL")->fetchColumn();
+check('nothing is stored differently by reading the history', $open !== false);
+
 // A new mic starts afresh
 send($db, $config, ['minutes' => [minute_row($later + 3000, 'on', ['mic_period' => 'mic-2', 'l90' => 10.0])]], $later + 3060);
 $history = run_rollup($db, $config, $later + 3060);

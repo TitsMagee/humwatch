@@ -6,6 +6,7 @@ declare(strict_types=1);
 const QUARTER_SECONDS = 900;
 const QUARTER_MIN_MINUTES = 12;
 const RECENT_DAYS = 30;
+const MONITORING_STOPPED_SECONDS = 3600;
 
 function meta_get(PDO $db, string $key, string $default = ''): string
 {
@@ -139,11 +140,14 @@ function update_quarters(PDO $db, int $now): void
 // Public summary for the current mic period only: levels from other periods don't compare.
 function build_history(PDO $db, int $now): array
 {
-    $current = $db->query('SELECT id, first_t, calibrated FROM mic_periods ORDER BY last_t DESC LIMIT 1')->fetch();
+    $current = $db->query('SELECT id, first_t, last_t, calibrated FROM mic_periods ORDER BY last_t DESC LIMIT 1')->fetch();
     if ($current === false) {
         return ['generated_at' => $now, 'current_run' => null, 'longest_run' => null, 'record' => null, 'recent' => null];
     }
     $period = $current['id'];
+    $lastT = (int) $current['last_t'];
+    // Past this, an open run can't honestly be called current
+    $stopped = $now - $lastT > MONITORING_STOPPED_SECONDS;
 
     $latest = $db->prepare('SELECT start_t, end_t, state, provisional FROM runs WHERE mic_period = ? AND ended_by IS NULL ORDER BY start_t DESC LIMIT 1');
     $latest->execute([$period]);
@@ -176,17 +180,22 @@ function build_history(PDO $db, int $now): array
     if ($record !== false) {
         $tones = $db->prepare('SELECT tones FROM minutes WHERE t >= ? AND t < ? AND tones IS NOT NULL ORDER BY t LIMIT 1 OFFSET 7');
         $tones->execute([$record['t'], $record['t'] + QUARTER_SECONDS]);
+        // Imported readings have no wind figure, and the page shouldn't imply otherwise
+        $wind = $db->prepare('SELECT COUNT(*) FROM minutes WHERE t >= ? AND t < ? AND wind IS NOT NULL');
+        $wind->execute([$record['t'], $record['t'] + QUARTER_SECONDS]);
         $record = [
             't' => (int) $record['t'],
             'l90' => (float) $record['l90'],
             'excess' => $record['excess'] === null ? null : (float) $record['excess'],
+            'wind_checked' => (int) $wind->fetchColumn() > 0,
             'tones' => json_decode((string) $tones->fetchColumn(), true) ?: [],
         ];
     } else {
         $record = null;
     }
 
-    $since = max($now - RECENT_DAYS * 86400, (int) $current['first_t']);
+    // Counted back from the last reading, so a period that has ended keeps its figures
+    $since = max($lastT - RECENT_DAYS * 86400, (int) $current['first_t']);
     $counts = $db->prepare(
         "SELECT state, COUNT(*) AS n FROM minutes WHERE mic_period = ? AND t >= ? GROUP BY state"
     );
@@ -198,7 +207,9 @@ function build_history(PDO $db, int $now): array
         'generated_at' => $now,
         'calibrated' => (int) $current['calibrated'] === 1,
         'monitoring_since' => (int) $current['first_t'],
-        'current_run' => $open === false ? null : [
+        'last_t' => $lastT,
+        'monitoring_stopped' => $stopped,
+        'current_run' => $open === false || $stopped ? null : [
             'state' => $open['state'],
             'provisional' => (int) $open['provisional'] === 1,
             'after_gap' => $afterGap,
@@ -208,11 +219,13 @@ function build_history(PDO $db, int $now): array
         'longest_run' => $long === false ? null : [
             'start_t' => (int) $long['start_t'],
             'end_t' => (int) $long['end_t'],
-            'ended_by' => $long['ended_by'],
+            // A run still open when the readings stopped was cut off, not finished
+            'ended_by' => $long['ended_by'] ?? ($stopped ? 'data_gap' : null),
         ],
         'record' => $record,
         'recent' => [
             'since' => $since,
+            'until' => $lastT,
             'on_percent' => $known ? round(100 * (int) ($byState['on'] ?? 0) / $known, 1) : null,
             'minutes_on' => (int) ($byState['on'] ?? 0),
             'minutes_off' => (int) ($byState['off'] ?? 0),

@@ -77,6 +77,14 @@ def _validate(cfg, args):
     print(json.dumps(learn.validate(minutes, stops), indent=2))
 
 
+def _send_archive(cfg, args):
+    from .uploader import Uploader
+
+    if not cfg["upload"]["url"]:
+        sys.exit("upload.url is not set")
+    print(f"Sent {Uploader(cfg).send_archive(args.file, args.skip)} rows")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="humwatch")
     parser.add_argument("--config", default="config.json")
@@ -93,6 +101,11 @@ def main(argv=None):
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--stops", required=True, help="CSV of start,end ISO times")
         sub.set_defaults(func=func)
+
+    archive = commands.add_parser("send-archive", help="upload older readings from a JSON lines file")
+    archive.add_argument("file")
+    archive.add_argument("--skip", type=int, default=0, help="lines already sent")
+    archive.set_defaults(func=_send_archive)
 
     args = parser.parse_args(argv)
     logging.basicConfig(

@@ -278,6 +278,27 @@ def test_failed_upload_keeps_everything(cfg, tmp_path, server):
     assert uploader.live == {"t": 61}
 
 
+def test_send_archive_batches_and_resumes(cfg, tmp_path, server):
+    path = tmp_path / "archive.jsonl"
+    path.write_text("".join(json.dumps({"t": t}) + "\n" for t in range(5)))
+    uploader = uploader_for(cfg, server)
+    uploader.batch = 2
+    assert uploader.send_archive(path) == 5
+    sent = [json.loads(body)["minutes"] for _, _, body in server.seen]
+    assert [len(batch) for batch in sent] == [2, 2, 1]
+    server.seen.clear()
+    assert uploader.send_archive(path, skip=3) == 5
+    assert [row["t"] for row in json.loads(server.seen[0][2])["minutes"]] == [3, 4]
+
+
+def test_send_archive_reports_where_to_resume(cfg, tmp_path, server):
+    path = tmp_path / "archive.jsonl"
+    path.write_text('{"t": 1}\n')
+    server.status = 500
+    with pytest.raises(RuntimeError, match="--skip 0"):
+        uploader_for(cfg, server).send_archive(path)
+
+
 def test_clip_upload(cfg, tmp_path, server):
     store = Store(tmp_path)
     clip = tmp_path / "a.flac"

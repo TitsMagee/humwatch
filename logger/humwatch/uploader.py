@@ -96,6 +96,37 @@ class Uploader(threading.Thread):
             store.mark_clip_uploaded(event_id)
         return len(rows)
 
+    def send_archive(self, path, skip=0):
+        """Send a file of minute rows, one JSON object per line. Returns rows sent.
+
+        For readings from before this logger. Send them before live logging starts:
+        the server rolls minutes up in order, and won't go back for older ones.
+        A failure raises with the line to resume from. Resending rows is harmless.
+        """
+        sent = skip
+        batch = []
+
+        def flush():
+            nonlocal sent
+            body = json.dumps({"minutes": batch, "events": []}).encode()
+            try:
+                self._post("/api/ingest.php", body, "application/json")
+            except (urllib.error.URLError, OSError) as exc:
+                raise RuntimeError(f"stopped at {exc}. Resume with --skip {sent}") from exc
+            sent += len(batch)
+            batch.clear()
+
+        with open(path, encoding="utf-8") as handle:
+            for number, line in enumerate(handle):
+                if number < skip or not line.strip():
+                    continue
+                batch.append(json.loads(line))
+                if len(batch) >= self.batch:
+                    flush()
+        if batch:
+            flush()
+        return sent
+
     def run(self):
         store = Store(self.data_dir)
         backoff = self.interval

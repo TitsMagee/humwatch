@@ -1,0 +1,3 @@
+# This folder holds the database password and the clips. It belongs outside the web root;
+# this is a second line of defence if it ever ends up inside it.
+Require all denied

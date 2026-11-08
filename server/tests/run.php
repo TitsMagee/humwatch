@@ -165,8 +165,22 @@ $ended = $db->query("SELECT ended_by FROM runs WHERE mic_period='mic-1' ORDER BY
 check('new mic ends the old run', $ended === 'new_mic');
 check('history moves to the new mic', $history['current_run']['start_t'] === $later + 3000 && $history['current_run']['after_gap'] === true && $history['record'] === null);
 
+// Typical reading: only a minute whose tones account for its level
+check('tones that fall short are not a fair example', !tones_explain_level([['db' => 30.0, 'present' => true]], 34.0, 40.0));
+check('tones that add up are', tones_explain_level([['db' => 39.0, 'present' => true]], 34.0, 40.0));
+check('tones not present are ignored', !tones_explain_level([['db' => 39.0, 'present' => false]], 34.0, 40.0));
+check('no typical reading when no minute is a fair example', typical_reading($db, 'mic-1', 0, $later + 5000) === null);
+$rows = [];
+for ($i = 0; $i < 20; $i++) {
+    $rows[] = minute_row($later + 4000 + $i * 60, 'on', ['mic_period' => 'mic-3', 'excess' => 6.0 + ($i % 3) * 0.1,
+        'tones' => [['low' => 66, 'high' => 68, 'hz' => 67.0, 'db' => 39.0, 'excess' => 10.0, 'present' => true]]]);
+}
+send($db, $config, ['minutes' => $rows], $later + 5300);
+$typical = typical_reading($db, 'mic-3', 0, $later + 6000);
+check('typical reading is near the usual level', $typical !== null && abs($typical['excess'] - $typical['usual_excess']) <= 0.5 && $typical['tones'] !== []);
+
 // Clips
-$flac = 'fLaC' . str_repeat('x', 100);
+$flac ='fLaC' . str_repeat('x', 100);
 $event = ['id' => $now . '-wide', 't' => $now, 'kind' => 'wide', 'mic_period' => 'mic-1', 'band_db' => 40.0, 'wide_db' => 50.0, 'has_clip' => true];
 [$timestamp, $signature] = signed($config, $flac, $now);
 check('clip for an unknown event waits', handle_clip($db, $config, $flac, $timestamp, $signature, $event['id'], $now)[0] === 409);

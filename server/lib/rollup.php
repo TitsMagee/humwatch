@@ -202,6 +202,7 @@ function build_history(PDO $db, int $now): array
     $counts->execute([$period, $since]);
     $byState = array_column($counts->fetchAll(), 'n', 'state');
     $known = (int) ($byState['on'] ?? 0) + (int) ($byState['off'] ?? 0);
+    $typical = typical_reading($db, $period, $since, $lastT);
 
     return [
         'generated_at' => $now,
@@ -223,6 +224,7 @@ function build_history(PDO $db, int $now): array
             'ended_by' => $long['ended_by'] ?? ($stopped ? 'data_gap' : null),
         ],
         'record' => $record,
+        'typical' => $typical,
         'recent' => [
             'since' => $since,
             'until' => $lastT,
@@ -232,6 +234,54 @@ function build_history(PDO $db, int $now): array
             'minutes_unknown' => (int) ($byState['unknown'] ?? 0) + (int) ($byState['fault'] ?? 0),
         ],
     ];
+}
+
+// Same test as tonesExplainLevel() in the page: tones plus background must add up to the level.
+function tones_explain_level(array $tones, float $baseDb, float $levelDb, float $toleranceDb = 3.0): bool
+{
+    $power = 10 ** ($baseDb / 10);
+    foreach ($tones as $tone) {
+        if (($tone['present'] ?? false) === true && is_numeric($tone['db'] ?? null)) {
+            $power += 10 ** ((float) $tone['db'] / 10);
+        }
+    }
+    return abs(10 * log10($power) - $levelDb) <= $toleranceDb;
+}
+
+// A running minute close to the usual level, whose tones account for that level, so the
+// page can play a fair example when there is no live reading.
+function typical_reading(PDO $db, string $period, int $since, int $until): ?array
+{
+    $where = "mic_period = ? AND state = 'on' AND t BETWEEN ? AND ? AND excess IS NOT NULL AND l90 IS NOT NULL";
+    $count = $db->prepare("SELECT COUNT(*) FROM minutes WHERE $where");
+    $count->execute([$period, $since, $until]);
+    $total = (int) $count->fetchColumn();
+    if ($total === 0) {
+        return null;
+    }
+    $middle = $db->prepare("SELECT excess FROM minutes WHERE $where ORDER BY excess LIMIT 1 OFFSET " . intdiv($total, 2));
+    $middle->execute([$period, $since, $until]);
+    $usual = (float) $middle->fetchColumn();
+
+    $near = $db->prepare(
+        "SELECT t, l90, excess, tones FROM minutes WHERE $where AND groups_present >= 2
+         AND excess BETWEEN ? AND ? ORDER BY t DESC LIMIT 500"
+    );
+    $near->execute([$period, $since, $until, $usual - 0.5, $usual + 0.5]);
+    foreach ($near->fetchAll() as $minute) {
+        $tones = json_decode((string) $minute['tones'], true) ?: [];
+        $base = (float) $minute['l90'] - (float) $minute['excess'];
+        if ($tones && tones_explain_level($tones, $base, (float) $minute['l90'])) {
+            return [
+                't' => (int) $minute['t'],
+                'l90' => (float) $minute['l90'],
+                'excess' => (float) $minute['excess'],
+                'usual_excess' => round($usual, 1),
+                'tones' => $tones,
+            ];
+        }
+    }
+    return null;
 }
 
 function delete_old_clips(PDO $db, array $config, int $now): int

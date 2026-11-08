@@ -1,5 +1,5 @@
 import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
-import { currentRun, dateOnly, dateTime, duration, longestRun, runningShare, signedDb, status } from "./format.js";
+import { capitalise, currentRun, dateOnly, dateTime, duration, longestRun, runningShare, signedDb, status } from "./format.js";
 
 const LIVE_REFRESH_MS = 10000;
 const HISTORY_REFRESH_MS = 300000;
@@ -235,21 +235,42 @@ class Wave {
 
 // Listening
 
+// What the listening buttons play: the live reading when it can be trusted, otherwise a
+// typical reading from the history, clearly labelled as such.
+function listenSource(current) {
+  if (current.numbers && live) return { reading: live, typical: false };
+  const typical = history && history.typical;
+  return typical ? { reading: typical, typical: true } : null;
+}
+
+let source = null;
+
 function renderListen(current) {
-  // With no trustworthy reading there's nothing honest to play
-  $("listen-now").hidden = !current.numbers && !playingFrom;
-  const hum = current.numbers && live ? toneAmplitudes(live.tones) : [];
-  const background = current.numbers ? backgroundDb(live) : null;
+  if (!playingFrom) source = listenSource(current);
+  // With no trustworthy reading and no fair example there's nothing honest to play
+  $("listen-now").hidden = !source && !playingFrom;
+  if (!source) return;
+  const reading = source.reading;
+  const hum = toneAmplitudes(reading.tones);
+  const background = backgroundDb(reading);
+  const fair = !source.typical || tonesExplainLevel(reading.tones, background, reading.l90);
   $("play-now").disabled = hum.length === 0 && playingFrom !== "now";
-  $("play-background").disabled = background === null && playingFrom !== "background";
+  $("play-background").disabled = (background === null || !fair) && playingFrom !== "background";
+  $("listen-source").hidden = !source.typical;
+  if (source.typical) {
+    $("listen-source").textContent =
+      `There's no live reading, so these play a typical reading instead, from ${dateTime(reading.t)}. ` +
+      `${capitalise(site.source_label)} was running about ${reading.usual_excess.toFixed(1)} dB above the background at the time, its usual level.`;
+  }
   if (!playingFrom) {
+    $("play-now").textContent = source.typical ? "Play a typical reading" : "Play the hum";
     $("listen-status").textContent =
       hum.length === 0 ? "There are no tones in the latest reading to play." : "";
   }
 }
 
 function resetListenButtons() {
-  $("play-now").textContent = "Play the hum";
+  $("play-now").textContent = source && source.typical ? "Play a typical reading" : "Play the hum";
   $("play-background").textContent = "Play the background";
   $("play-record").textContent = "Play it against the background";
   $("toggle-source").hidden = true;
@@ -302,15 +323,18 @@ function wireAudio() {
   player.setVolume($("volume").value / 100);
 
   $("play-now").addEventListener("click", () => startPlaying("now", async () => {
-    await player.play(humOnlyLevels(live.tones));
+    await player.play(humOnlyLevels(source.reading.tones));
     $("play-now").textContent = "Stop";
-    $("listen-status").textContent = "Playing: an estimate of the hum in the latest reading";
+    $("listen-status").textContent = source.typical
+      ? "Playing: an estimate of the hum in a typical reading"
+      : "Playing: an estimate of the hum in the latest reading";
   }));
 
   $("play-background").addEventListener("click", () => startPlaying("background", async () => {
-    await player.play(mixLevels(live.tones, backgroundDb(live)), { birds: true, humOn: false });
+    const reading = source.reading;
+    await player.play(mixLevels(reading.tones, backgroundDb(reading)), { birds: true, humOn: false });
     $("play-background").textContent = "Stop";
-    if (toneAmplitudes(live.tones).length) {
+    if (toneAmplitudes(reading.tones).length) {
       setSourceToggle("toggle-source", "listen-status", false);
     } else {
       $("listen-status").textContent = "Playing: background only. There are no tones in the latest reading to add.";

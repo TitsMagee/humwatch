@@ -165,6 +165,12 @@ $ended = $db->query("SELECT ended_by FROM runs WHERE mic_period='mic-1' ORDER BY
 check('new mic ends the old run', $ended === 'new_mic');
 check('history moves to the new mic', $history['current_run']['start_t'] === $later + 3000 && $history['current_run']['after_gap'] === true && $history['record'] === null);
 
+check('a mic with a stopped level needs no earlier figures', $history['earlier'] === null);
+send($db, $config, ['minutes' => [minute_row($later + 3120, 'unknown', ['mic_period' => 'mic-3', 'excess' => null])]], $later + 3180);
+$history = run_rollup($db, $config, $later + 3180);
+check('a mic with no stopped level keeps the earlier figures', $history['earlier'] !== null && $history['earlier']['last_t'] === $later + 3000);
+check('the earlier figures do not change the current ones', $history['current_run']['start_t'] === $later + 3120 && $history['record'] === null);
+
 // Typical reading: only a minute whose tones account for its level
 check('tones that fall short are not a fair example', !tones_explain_level([['db' => 30.0, 'present' => true]], 34.0, 40.0));
 check('tones that add up are', tones_explain_level([['db' => 39.0, 'present' => true]], 34.0, 40.0));

@@ -4,7 +4,7 @@ import { test } from "node:test";
 
 import { beatPairs, envelope, wobbleSentence } from "../public/assets/wobble.js";
 import { humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "../public/assets/audio.js";
-import { currentRun, duration, longestRun, runningShare, signedDb, status } from "../public/assets/format.js";
+import { currentRun, duration, figures, longestRun, runningShare, signedDb, status } from "../public/assets/format.js";
 
 const NOW = 1800000000;
 const reading = (extra) => ({ received_at: NOW - 10, state: "on", mic_ok: true, excess: 7.5, ...extra });
@@ -221,4 +221,12 @@ test("an interim run does not claim a recorded stop", () => {
   const run = currentRun({ current_run: { state: "on", provisional: true, after_gap: false, start_t: NOW - 3600, end_t: NOW } }, "the mill", NOW);
   assert.match(run.note, /tones alone/);
   assert.doesNotMatch(run.note, /last recorded/);
+});
+
+test("earlier figures are used only when the history offers them", () => {
+  const earlier = { longest_run: {} };
+  assert.equal(figures({ earlier }), earlier);
+  const history = { earlier: null };
+  assert.equal(figures(history), history);
+  assert.equal(figures(null), null);
 });

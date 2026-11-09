@@ -144,6 +144,30 @@ function build_history(PDO $db, int $now): array
     if ($current === false) {
         return ['generated_at' => $now, 'current_run' => null, 'longest_run' => null, 'record' => null, 'recent' => null];
     }
+    $history = period_summary($db, $current, $now);
+    $history['earlier'] = earlier_summary($db, $current, $now);
+    return $history;
+}
+
+// Until the current mic has a stopped level to compare with, it can't produce a loudest
+// or typical reading, so the page keeps showing the previous mic's figures, labelled.
+function earlier_summary(PDO $db, array $current, int $now): ?array
+{
+    $measured = $db->prepare('SELECT 1 FROM minutes WHERE mic_period = ? AND excess IS NOT NULL LIMIT 1');
+    $measured->execute([$current['id']]);
+    if ($measured->fetchColumn() !== false) {
+        return null;
+    }
+    $previous = $db->prepare(
+        'SELECT id, first_t, last_t, calibrated FROM mic_periods WHERE id <> ? AND last_t < ? ORDER BY last_t DESC LIMIT 1'
+    );
+    $previous->execute([$current['id'], $current['last_t']]);
+    $row = $previous->fetch();
+    return $row === false ? null : period_summary($db, $row, $now);
+}
+
+function period_summary(PDO $db, array $current, int $now): array
+{
     $period = $current['id'];
     $lastT = (int) $current['last_t'];
     // Past this, an open run can't honestly be called current

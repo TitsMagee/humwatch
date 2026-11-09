@@ -1,6 +1,6 @@
 import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
 import { beatPairs, envelope, wobbleSentence } from "./wobble.js";
-import { capitalise, currentRun, dateOnly, dateTime, duration, longestRun, runningShare, signedDb, status } from "./format.js";
+import { capitalise, currentRun, dateOnly, dateTime, duration, figures, longestRun, runningShare, signedDb, status } from "./format.js";
 
 const LIVE_REFRESH_MS = 10000;
 const HISTORY_REFRESH_MS = 300000;
@@ -246,9 +246,11 @@ class Wave {
 // What the listening buttons play: the live reading when it can be trusted, otherwise a
 // typical reading from the history, clearly labelled as such.
 function listenSource(current) {
-  if (current.numbers && live) return { reading: live, typical: false };
-  const typical = history && history.typical;
-  return typical ? { reading: typical, typical: true } : null;
+  const shown = figures(history);
+  const typical = shown && shown.typical;
+  // A reading with no background to compare with can only play half of what's offered
+  if (current.numbers && live && (backgroundDb(live) !== null || !typical)) return { reading: live, typical: false };
+  return typical ? { reading: typical, typical: true, liveNotComparable: Boolean(current.numbers && live) } : null;
 }
 
 let source = null;
@@ -267,7 +269,7 @@ function renderListen(current) {
   $("listen-source").hidden = !source.typical;
   if (source.typical) {
     $("listen-source").textContent =
-      `There's no live reading, so these play a typical reading instead, from ${dateTime(reading.t)}. ` +
+      `${source.liveNotComparable ? "The live reading can't be compared with the background yet" : "There's no live reading"}, so these play a typical reading instead, from ${dateTime(reading.t)}. ` +
       `${capitalise(site.source_label)} was running about ${reading.usual_excess.toFixed(1)} dB above the background at the time, its usual level.`;
   }
   if (!playingFrom) {
@@ -353,7 +355,7 @@ function wireAudio() {
   wireToggle("toggle-record", "record-status");
 
   $("play-record").addEventListener("click", () => startPlaying("record", async () => {
-    const record = history.record;
+    const record = figures(history).record;
     const base = record.excess === null ? null : record.l90 - record.excess;
     await player.play(mixLevels(record.tones, base), { birds: true, humOn: true });
     $("play-record").textContent = "Stop";
@@ -366,15 +368,18 @@ function wireAudio() {
 function renderHistory() {
   const now = Date.now() / 1000;
   const run = currentRun(history, site.source_label, now);
-  const longest = longestRun(history);
-  const share = runningShare(history);
+  const shown = figures(history);
+  const past = Boolean(history && history.earlier);
+  const longest = longestRun(shown);
+  const share = runningShare(shown);
   const any = run || longest || share;
   $("history-empty").hidden = Boolean(any);
   $("history-facts").hidden = !any;
-  const ended = history && history.monitoring_stopped;
+  const ended = shown && shown.monitoring_stopped;
   $("history-note").hidden = !ended;
   if (ended) {
-    $("history-note").textContent = `These readings end on ${dateOnly(history.last_t)}. ${site.history_note || ""}`.trim();
+    const opening = past && run ? "Apart from the current run, these figures come from earlier readings, which end" : "These readings end";
+    $("history-note").textContent = `${opening} on ${dateOnly(shown.last_t)}. ${site.history_note || ""}`.trim();
   }
   fill("fact-current", run, () => {
     $("current-label").textContent = run.label;
@@ -391,7 +396,7 @@ function renderHistory() {
     $("share-note").textContent = share.note;
   });
 
-  const record = history && history.record;
+  const record = shown && shown.record;
   const playable = record && record.excess !== null
     && tonesExplainLevel(record.tones, record.l90 - record.excess, record.l90);
   $("loudest").hidden = !record;
@@ -403,7 +408,7 @@ function renderHistory() {
         ? `${record.excess.toFixed(1)} dB above the background`
         : "About the same as the background";
     $("loudest-when").textContent =
-      `The loudest 15 minutes logged with this microphone, on ${dateTime(record.t)}, with ${site.source_label} running throughout${record.wind_checked === false ? "" : " and no wind flagged"}. This is the steady level, so passing sounds don't count.${record.wind_checked === false ? " Wind wasn't measured for this reading." : ""}`;
+      `The loudest 15 minutes logged with ${past ? "the earlier" : "this"} microphone, on ${dateTime(record.t)}, with ${site.source_label} running throughout${record.wind_checked === false ? "" : " and no wind flagged"}. This is the steady level, so passing sounds don't count.${record.wind_checked === false ? " Wind wasn't measured for this reading." : ""}`;
     $("play-record").hidden = !playable;
   }
 }
@@ -422,6 +427,7 @@ async function refreshLive() {
     live.received_at = Date.now() / 1000 - 12;
     if (demo === "off") Object.assign(live, { state: "off", provisional: true, excess: 0.4, tones: live.tones.map((tone) => ({ ...tone, present: false, excess: 0.5 })) });
     if (demo === "unknown") live.state = "unknown";
+    if (demo === "earlier") Object.assign(live, { provisional: true, excess: null, tones: live.tones.map((tone) => ({ ...tone, excess: null })) });
     if (demo === "fault") Object.assign(live, { state: "fault", mic_ok: false });
     if (demo === "stale") live.received_at = Date.now() / 1000 - 7400;
     if (demo === "none") live = null;
@@ -441,6 +447,10 @@ async function refreshHistory() {
         if (part && part[key]) part[key] += shift;
       }
     }
+  }
+  if (history && demo === "earlier") {
+    history.earlier = { ...history, monitoring_stopped: true, last_t: history.generated_at - 1728000, current_run: null };
+    Object.assign(history, { longest_run: null, record: null, typical: null, recent: null });
   }
   renderHistory();
 }

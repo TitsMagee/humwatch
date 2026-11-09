@@ -104,6 +104,11 @@ export function status(live, label, now, hasHistory = false) {
   };
 }
 
+// The figures to show: the previous mic's while the current one has no stopped level
+export function figures(history) {
+  return (history && history.earlier) || history;
+}
+
 export function currentRun(history, label, now) {
   const run = history && history.current_run;
   if (!run) return null;

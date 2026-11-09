@@ -90,6 +90,9 @@ function drawToneChart(tones) {
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const known = tones.filter((tone) => tone.excess !== null);
+  $("tones-summary").textContent = known.length
+    ? "Each mark is one tone in the hum. The taller it is, the further it stands above the background."
+    : "Each mark is one tone in the hum. Heights can't be shown until the monitor has recorded a stop to compare them with.";
   const top = Math.max(10, Math.ceil(Math.max(0, ...known.map((tone) => tone.excess)) / 10) * 10);
   const x = (hz) => margin.left + (plotWidth * Math.log(hz / FREQ_LOW)) / Math.log(FREQ_HIGH / FREQ_LOW);
   const y = (db) => margin.top + plotHeight * (1 - Math.max(0, db) / top);

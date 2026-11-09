@@ -1,4 +1,5 @@
 import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
+import { beatPairs, envelope, wobbleSentence } from "./wobble.js";
 import { capitalise, currentRun, dateOnly, dateTime, duration, longestRun, runningShare, signedDb, status } from "./format.js";
 
 const LIVE_REFRESH_MS = 10000;
@@ -153,6 +154,9 @@ class Wave {
     this.canvas = canvas;
     this.context = canvas.getContext("2d");
     this.parts = [];
+    this.beats = { power: 0, pairs: [] };
+    this.phases = [];
+    this.key = null;
     this.broken = true;
     this.phase = 0;
     this.last = null;
@@ -162,10 +166,18 @@ class Wave {
   }
 
   setTones(tones, broken) {
-    const amplitudes = toneAmplitudes(tones);
-    const loudest = Math.max(0, ...amplitudes.map((part) => part.amplitude));
-    this.parts = amplitudes.map((part) => ({ hz: part.hz, share: part.amplitude / loudest }));
     this.broken = broken;
+    const key = JSON.stringify((tones || []).map((tone) => [tone.hz, tone.db, tone.present]));
+    if (key !== this.key) {
+      this.key = key;
+      this.beats = beatPairs(tones);
+      // Real phases aren't measured, so each pair starts at a random point in its cycle
+      this.phases = this.beats.pairs.map(() => Math.random() * 2 * Math.PI);
+      this.parts = toneAmplitudes(tones);
+    }
+    const sentence = broken ? null : wobbleSentence(this.beats);
+    $("wobble-note").hidden = !sentence;
+    $("wobble-note").textContent = sentence || "";
     this.draw();
   }
 
@@ -212,24 +224,20 @@ class Wave {
       return;
     }
 
-    // Shows a fifth of a second across the page, drifting slowly. The shape is the true
-    // sum of the tones; only the drift is slowed.
-    const span = 0.2;
-    const drift = this.phase * 0.003;
-    const total = this.parts.reduce((sum, part) => sum + part.share, 0);
-    const scale = (height * 0.46) / total;
-    context.strokeStyle = styles.getPropertyValue("--sodium");
-    context.beginPath();
-    const stepPixels = 1;
-    for (let px = 0; px <= width; px += stepPixels) {
-      const t = (px / width) * span + drift;
-      let sample = 0;
-      for (const part of this.parts) sample += part.share * Math.sin(2 * Math.PI * part.hz * t);
-      const py = middle - sample * scale;
-      if (px === 0) context.moveTo(px, py);
-      else context.lineTo(px, py);
+    // The hum's loudness over the last few seconds, scrolling in real time, newest on the
+    // right. Its swelling and fading is the beating between the measured tones, drawn at
+    // its true rate and depth.
+    const span = 4;
+    const half = height * 0.46;
+    // Drawn as bars, like an audio waveform, scrolling smoothly with time
+    const pitch = 6;
+    const offset = ((this.phase / span) * width) % pitch;
+    context.fillStyle = styles.getPropertyValue("--sodium");
+    for (let px = width - offset; px >= -pitch; px -= pitch) {
+      const t = this.phase - (1 - px / width) * span;
+      const size = Math.max(1, envelope(this.beats, this.phases, t) * half);
+      context.fillRect(px, middle - size, 3, size * 2);
     }
-    context.stroke();
   }
 }
 

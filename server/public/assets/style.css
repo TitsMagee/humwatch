@@ -107,6 +107,13 @@ h1 {
   height: clamp(7rem, 22vw, 15rem);
 }
 
+.wobble-note {
+  margin-top: 0.75rem;
+  padding: 0 var(--gutter);
+  max-width: calc(var(--measure) + 2 * var(--gutter));
+  color: var(--mist);
+}
+
 .listen {
   padding: clamp(1.25rem, 3vw, 2rem) var(--gutter) 0;
 }

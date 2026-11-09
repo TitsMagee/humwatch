@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { beatPairs, envelope, wobbleSentence } from "../public/assets/wobble.js";
 import { humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "../public/assets/audio.js";
 import { currentRun, duration, longestRun, runningShare, signedDb, status } from "../public/assets/format.js";
 
@@ -129,6 +130,49 @@ test("a level the tones do explain can be played", () => {
 
 test("no background figure means no comparison can be played", () => {
   assert.equal(tonesExplainLevel([{ hz: 100, db: -45, present: true }], null, -41), false);
+});
+
+test("close tones beat at their difference, strongest pair first", () => {
+  const beats = beatPairs([
+    { hz: 148.5, db: -40, present: true },
+    { hz: 153.5, db: -40, present: true },
+    { hz: 74.0, db: -60, present: true },
+    { hz: 80.0, db: -60, present: true },
+  ]);
+  assert.equal(beats.pairs.length, 2);
+  assert.equal(beats.pairs[0].rate, 5);
+  assert.ok(beats.pairs[0].depth > beats.pairs[1].depth);
+});
+
+test("pairs too far apart or too close to resolve don't count as wobble", () => {
+  const beats = beatPairs([
+    { hz: 100, db: -40, present: true },
+    { hz: 100.2, db: -40, present: true },
+    { hz: 150, db: -40, present: true },
+  ]);
+  assert.deepEqual(beats.pairs, []);
+});
+
+test("two equal tones swing from full to silence and back", () => {
+  const beats = beatPairs([{ hz: 100, db: -40, present: true }, { hz: 104, db: -40, present: true }]);
+  assert.ok(Math.abs(envelope(beats, [0], 0) - 1) < 1e-9);
+  assert.ok(envelope(beats, [0], 0.125) < 1e-6);
+});
+
+test("the envelope never exceeds its peak", () => {
+  const beats = beatPairs([{ hz: 100, db: -40, present: true }, { hz: 103, db: -45, present: true }, { hz: 107, db: -50, present: true }]);
+  for (let t = 0; t < 2; t += 0.01) assert.ok(envelope(beats, [0, 0, 0], t) <= 1 + 1e-9);
+});
+
+test("the wobble sentence names the strongest pair", () => {
+  const beats = beatPairs([{ hz: 148.7, db: -40, present: true }, { hz: 153.8, db: -41, present: true }]);
+  assert.match(wobbleSentence(beats), /149 and 154 Hz .* about 5 times a second/);
+});
+
+test("a steady hum says so rather than inventing a throb", () => {
+  const beats = beatPairs([{ hz: 100, db: -40, present: true }, { hz: 150, db: -40, present: true }]);
+  assert.match(wobbleSentence(beats), /holds steady/);
+  assert.equal(wobbleSentence(beatPairs([])), null);
 });
 
 test("only tones that are present are played", () => {

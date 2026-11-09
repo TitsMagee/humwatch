@@ -79,6 +79,13 @@ export function status(live, label, now, hasHistory = false) {
     };
   }
   if (live.state === "on") {
+    if (live.provisional) {
+      return {
+        kind: "on", numbers: true,
+        headline: `${name} appears to be running`,
+        detail: "Going by its tones alone, until the monitor has recorded a stop to compare them with.",
+      };
+    }
     return { kind: "on", numbers: true, headline: `${name} is running`, detail: excessLine(live.excess) };
   }
   if (live.state === "off") {
@@ -106,9 +113,11 @@ export function currentRun(history, label, now) {
     return {
       label: `Current run of ${label}`,
       value: run.after_gap ? `At least ${span}` : span,
-      note: run.after_gap
-        ? "Monitoring only resumed at the start of this run, so it may have been running for longer."
-        : "Since the monitor last recorded it stopping.",
+      note: run.provisional
+        ? "Going by its tones alone, and it may have been running for longer."
+        : run.after_gap
+          ? "Monitoring only resumed at the start of this run, so it may have been running for longer."
+          : "Since the monitor last recorded it stopping.",
     };
   }
   if (run.state === "off") {

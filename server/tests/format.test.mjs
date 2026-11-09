@@ -210,3 +210,15 @@ test("the mix stays within a safe peak however loud the reading", () => {
 test("nothing to play gives silence, not an error", () => {
   assert.deepEqual(mixLevels([], null), { noise: 0, tones: [] });
 });
+
+test("a running reading with no stop to compare against says so", () => {
+  const result = status(reading({ state: "on", provisional: true, excess: null }), "the mill", NOW);
+  assert.match(result.headline, /appears to be running/);
+  assert.match(result.detail, /tones alone/);
+});
+
+test("an interim run does not claim a recorded stop", () => {
+  const run = currentRun({ current_run: { state: "on", provisional: true, after_gap: false, start_t: NOW - 3600, end_t: NOW } }, "the mill", NOW);
+  assert.match(run.note, /tones alone/);
+  assert.doesNotMatch(run.note, /last recorded/);
+});

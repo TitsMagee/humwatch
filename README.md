@@ -66,6 +66,10 @@ The tones and baseline are specific to each site, and you need at least one stop
 3. Run `humwatch --config config.json baseline --stops stops.csv`, then `learn --stops stops.csv`, and add the tone groups to `config.json`.
 4. After more confirmed stops, run `validate --stops stops.csv` to see how well the detector does. Only then set `detector.validated` to true.
 
+You don't have to be there when a stop happens. Spectra are saved every minute for 120 days, so a baseline can be built later. `humwatch --config config.json find-stops --out stops.csv` lists stretches where the tones vanished and the level fell. Treat these as candidates and check them first: at the development site it found every confirmed stop, but also flagged two mornings when the source was still running.
+
+Until there is a stop, `humwatch --config config.json interim-baseline` estimates a stand-in from the frequencies either side of each tone, using at least an hour of readings (a day or more is better). Restart the logger to use it. Readings are then marked provisional, the page says it is going by tones alone, and no level is given above the background. Leave out any tone that might come from something else, such as a heat pump, because this baseline can't rule it out. A baseline from real stops replaces it.
+
 ### Adding older readings
 
 If you logged readings before using HumWatch, convert them to a file with one JSON row per minute, in the same form as the logger's minute rows, under their own `mic_period`. Then send them, before live logging starts, because the server rolls minutes up in order:
@@ -82,7 +86,7 @@ Read this before publishing anything:
 
 - **Levels aren't dB(A) and aren't certified.** They are unweighted, and uncalibrated unless you have measured the mic's offset. They are no substitute for a professional survey.
 - **It doesn't work out what caused a sound.** It finds tones that come and go together. You have to establish where they come from.
-- **A source that never stops is a problem.** The method needs a baseline taken during a stop, which a data centre may never give you. A baseline from a similar spot elsewhere might work, but this is untested.
+- **A source that rarely stops is a problem.** The proper baseline needs a stop, which a data centre may never give you. `interim-baseline` is a stand-in (see below), but it is less well tested and cannot say how much louder the source makes things.
 - **It says nothing about health effects.** Don't let your site imply it does.
 
 ## Publishing responsibly

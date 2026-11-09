@@ -66,6 +66,17 @@ Tested at one site on about 49 days of outdoor data, using a previous mic and pi
 
 So every OFF is marked `provisional` until `detector.validated` is set by someone who has checked it against stops they witnessed themselves.
 
+### Sites with no recorded stop
+
+`interim-baseline` estimates a baseline with the source running: for each frequency, the floor either side of it (about 40 Hz wide), at its 10th percentile across the minutes used. A tone must then stand clear of that floor, so `excess` and `prominence` measure nearly the same thing. This is the baseline-free test that fired on a dead mic, so it is weaker than a real baseline. It is limited in these ways:
+
+- ON and OFF are always `provisional`, and the page says so
+- `excess` is published as null, because there is no stopped level to compare with
+- The below-baseline fault allows an extra 10 dB, as a real stop sits under the running level this baseline holds. A dead mic should still fall below that
+- It has not been tested against a real stop
+
+`find-stops` looks for candidates in the saved spectra: at most one tone group standing out for 20 minutes or more, with the level at least 3 dB below the two hours either side. A stretch with no level drop is `weak`, and a drop of 20 dB or more is `check_mic`. Run over the five weeks of archived readings from the development site, which were scored by an older tone measure, it marked six stretches `likely`: both confirmed stops, two more suspected stops, and two mornings when clips showed the source still running. So a person has to judge each one before it becomes a baseline.
+
 ## Mic faults
 
 A dead mic and a stopped source look alike: no tones, low level. At the development site, a rain-damaged mic read about 28 dB below a real stop. So every minute is checked for no audio, digital silence, clipping, a level under `health.floor_db`, or a level far below the stopped baseline. Faulty minutes report `fault`, are never counted as OFF, and clear the detector's memory of the source being off.

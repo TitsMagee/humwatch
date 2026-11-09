@@ -22,6 +22,8 @@ class Baseline:
     spectrum_db: np.ndarray
     band_l90_db: float
     sub_db: float
+    # Estimated from the source running, not measured during a stop
+    interim: bool = False
 
 
 def load_baseline(path, mic_period):
@@ -43,6 +45,7 @@ def load_baseline(path, mic_period):
         spectrum_db=np.array(raw["spectrum_db"], dtype=float),
         band_l90_db=float(raw["band_l90_db"]),
         sub_db=float(raw["sub_db"]),
+        interim=bool(raw.get("interim", False)),
     )
 
 
@@ -59,6 +62,7 @@ def save_baseline(path, baseline):
                 "spectrum_db": [round(float(v), 2) for v in baseline.spectrum_db],
                 "band_l90_db": round(baseline.band_l90_db, 2),
                 "sub_db": round(baseline.sub_db, 2),
+                "interim": baseline.interim,
             },
             handle,
         )

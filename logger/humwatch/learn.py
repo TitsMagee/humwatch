@@ -18,6 +18,7 @@ MIN_RUNNING_FRACTION = 0.08
 MAX_STOPPED_FRACTION = 0.10
 NEIGHBOUR_BINS = 81  # about 40 Hz at 0.5 Hz per bin
 MIN_STOP_MINUTES = 30
+MIN_INTERIM_MINUTES = 60
 
 
 def read_windows(path):
@@ -121,3 +122,111 @@ def validate(minutes, stops, margin_seconds=7200):
             bucket = outside
         bucket[state if state in ("on", "off") else "other"] += 1
     return {"during_stops": inside, "away_from_stops": outside}
+
+
+def build_interim_baseline(mic_period, freqs, times, spectra_db, minutes):
+    """A stand-in for sites that have no recorded stop yet.
+
+    Takes what each frequency would read without narrow tones: the floor either side of
+    it, at its quietest across the minutes given. That ignores any broad noise the source
+    adds, so it says nothing about how much louder the source makes things.
+    """
+    usable = {row[0]: row for row in minutes if row[1] is not None and row[4] != "fault"}
+    mask = np.array([int(t) in usable for t in times], dtype=bool)
+    if mask.sum() < MIN_INTERIM_MINUTES:
+        raise ValueError(f"need at least {MIN_INTERIM_MINUTES} usable logged minutes")
+    floor = median_filter(spectra_db[mask], size=(1, NEIGHBOUR_BINS), mode="nearest")
+    rows = [usable[int(t)] for t in times[mask]]
+    return Baseline(
+        mic_period=mic_period,
+        captured_at=int(times[mask][-1]),
+        freqs=np.asarray(freqs),
+        spectrum_db=np.percentile(floor, 10, axis=0),
+        band_l90_db=float(np.median([row[1] for row in rows])),
+        sub_db=float(np.median([row[2] for row in rows if row[2] is not None])),
+        interim=True,
+    )
+
+
+def tones_by_prominence(meter, spectra_db):
+    """How many tone groups stand out in each minute, needing no baseline."""
+    needed = meter.prominence_db
+    return np.array(
+        [
+            sum(tone["prominence"] is not None and tone["prominence"] >= needed for tone in meter.measure(row))
+            for row in spectra_db
+        ]
+    )
+
+
+def other_lines(freqs, spectrum_db, groups, prominence_db=6.0):
+    """Narrow peaks outside the tone groups: a mic that still hears these isn't dead."""
+    freqs = np.asarray(freqs)
+    above = spectrum_db - median_filter(spectrum_db, size=NEIGHBOUR_BINS, mode="nearest")
+    tops = (above[1:-1] >= prominence_db) & (above[1:-1] > above[:-2]) & (above[1:-1] >= above[2:])
+    return sum(
+        not any(low - 1.5 <= f <= high + 1.5 for low, high in groups) for f in freqs[1:-1][tops]
+    )
+
+
+def find_stops(
+    times,
+    groups,
+    levels,
+    max_groups=1,
+    min_minutes=20,
+    max_gap_minutes=3,
+    context_minutes=120,
+    level_drop_db=3.0,
+    dead_mic_drop_db=20.0,
+):
+    """Stretches where the tone set vanished together, for a person to judge.
+
+    times are minute starts in order, with groups and levels alongside. Level alone
+    can't tell a low-load night from a stop, and tones alone vanish under wind, so a
+    stretch is only 'likely' if the tones go and the level falls with them.
+    """
+    times, groups, levels = np.asarray(times), np.asarray(groups), np.asarray(levels, dtype=float)
+    quiet = groups <= max_groups
+    found = []
+    i = 0
+    while i < len(times):
+        if not quiet[i]:
+            i += 1
+            continue
+        first = last = i
+        j = i + 1
+        while j < len(times) and times[j] - times[last] <= (max_gap_minutes + 1) * 60:
+            if quiet[j]:
+                last = j
+            j += 1
+        i = last + 1
+        start, end = int(times[first]), int(times[last]) + 60
+        if (end - start) / 60 < min_minutes:
+            continue
+        inside = (times >= start) & (times < end)
+        around = ~quiet & ~inside & (times >= start - context_minutes * 60) & (times < end + context_minutes * 60)
+        drop, groups_around = None, None
+        if around.any():
+            drop = float(np.median(levels[around]) - np.median(levels[inside]))
+            groups_around = float(np.median(groups[around]))
+        if drop is None or groups_around < 2:
+            verdict = "weak"
+        elif drop >= dead_mic_drop_db:
+            verdict = "check_mic"
+        elif drop >= level_drop_db:
+            verdict = "likely"
+        else:
+            verdict = "weak"
+        found.append(
+            {
+                "start": start,
+                "end": end,
+                "minutes": (end - start) // 60,
+                "level_drop": None if drop is None else round(drop, 1),
+                "groups_around": groups_around,
+                "groups_during": float(np.median(groups[inside])),
+                "verdict": verdict,
+            }
+        )
+    return found

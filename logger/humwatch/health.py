@@ -9,6 +9,9 @@ BELOW_FLOOR = "below_floor"
 BELOW_BASELINE = "below_baseline"
 CLIPPING = "clipping"
 
+# An interim baseline holds the running level, and a stop sits below that
+INTERIM_STOP_ALLOWANCE_DB = 10.0
+
 
 def check(cfg, minute, baseline=None):
     """Return a fault reason for a minute's summary, or None."""
@@ -21,6 +24,10 @@ def check(cfg, minute, baseline=None):
         return CLIPPING
     if minute.l90 < float(health["floor_db"]):
         return BELOW_FLOOR
-    if baseline is not None and minute.l90 < baseline.band_l90_db - float(health["below_baseline_db"]):
-        return BELOW_BASELINE
+    if baseline is not None:
+        allowance = float(health["below_baseline_db"])
+        if baseline.interim:
+            allowance += INTERIM_STOP_ALLOWANCE_DB
+        if minute.l90 < baseline.band_l90_db - allowance:
+            return BELOW_BASELINE
     return None

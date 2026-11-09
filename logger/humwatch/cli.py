@@ -5,12 +5,14 @@ import json
 import logging
 import signal
 import sys
+import time
+from datetime import datetime
 
 import numpy as np
 
 from . import calibration, learn
 from .config import load
-from .fingerprint import save_baseline
+from .fingerprint import ToneMeter, load_baseline, save_baseline
 from .spectrum import Analyzer
 from .store import Store
 
@@ -70,6 +72,58 @@ def _baseline(cfg, args):
     print(f"Saved baseline: band L90 {baseline.band_l90_db:.1f} dB")
 
 
+def _interim_baseline(cfg, args):
+    existing = load_baseline(cfg["paths"]["baseline"], cfg["mic_period"])
+    if existing is not None and not existing.interim:
+        sys.exit("This mic period already has a baseline from real stops: not replacing it")
+    store = Store(cfg["paths"]["data_dir"])
+    times, spectra = store.spectra(cfg["mic_period"], time.time() - args.days * 86400)
+    if not len(times):
+        sys.exit("No logged spectra for this mic period yet")
+    minutes = store.minutes_between(cfg["mic_period"], times[0], times[-1] + 60)
+    baseline = learn.build_interim_baseline(cfg["mic_period"], Analyzer(cfg).band_freqs, times, spectra, minutes)
+    save_baseline(cfg["paths"]["baseline"], baseline)
+    print(f"Saved interim baseline from {len(times)} minutes. Restart the logger to use it.")
+
+
+def _clock(t):
+    return datetime.fromtimestamp(t).astimezone().strftime("%Y-%m-%dT%H:%M")
+
+
+def _find_stops(cfg, args):
+    store = Store(cfg["paths"]["data_dir"])
+    times, spectra = store.spectra(cfg["mic_period"], time.time() - args.days * 86400)
+    if not len(times):
+        sys.exit("No logged spectra for this mic period yet")
+    usable = {
+        row[0]: row[1]
+        for row in store.minutes_between(cfg["mic_period"], times[0], times[-1] + 60)
+        if row[1] is not None and row[4] != "fault"
+    }
+    keep = np.array([int(t) in usable for t in times], dtype=bool)
+    times, spectra = times[keep], spectra[keep]
+    freqs = Analyzer(cfg).band_freqs
+    groups = learn.tones_by_prominence(ToneMeter(cfg, freqs), spectra)
+    levels = [usable[int(t)] for t in times]
+    found = learn.find_stops(times, groups, levels)
+    if not found:
+        print(f"No stretches found in {len(times)} minutes")
+    print("start,end,minutes,level_drop_db,groups_around,groups_during,other_lines,verdict")
+    for stop in found:
+        inside = (times >= stop["start"]) & (times < stop["end"])
+        lines = learn.other_lines(freqs, np.median(spectra[inside], axis=0), cfg["fingerprint"]["tone_groups"])
+        print(
+            f"{_clock(stop['start'])},{_clock(stop['end'])},{stop['minutes']},{stop['level_drop']},"
+            f"{stop['groups_around']},{stop['groups_during']},{lines},{stop['verdict']}"
+        )
+    if args.out:
+        # The minutes either side of a stop are a mix of running and stopped
+        with open(args.out, "w", encoding="utf-8") as handle:
+            for stop in found:
+                if stop["verdict"] == "likely":
+                    handle.write(f"{_clock(stop['start'] + 180)},{_clock(stop['end'] - 180)}\n")
+
+
 def _validate(cfg, args):
     stops = learn.read_windows(args.stops)
     store = Store(cfg["paths"]["data_dir"])
@@ -101,6 +155,15 @@ def main(argv=None):
         sub = commands.add_parser(name, help=text)
         sub.add_argument("--stops", required=True, help="CSV of start,end ISO times")
         sub.set_defaults(func=func)
+
+    interim = commands.add_parser("interim-baseline", help="estimate a stand-in baseline with the source running")
+    interim.add_argument("--days", type=float, default=7, help="how far back to look")
+    interim.set_defaults(func=_interim_baseline)
+
+    stops = commands.add_parser("find-stops", help="list likely stops from the saved spectra")
+    stops.add_argument("--days", type=float, default=30, help="how far back to look")
+    stops.add_argument("--out", help="write likely stops here, as a CSV for the baseline command")
+    stops.set_defaults(func=_find_stops)
 
     archive = commands.add_parser("send-archive", help="upload older readings from a JSON lines file")
     archive.add_argument("file")

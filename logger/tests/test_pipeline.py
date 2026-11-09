@@ -10,7 +10,8 @@ from conftest import sine
 from humwatch import learn
 from humwatch.config import ConfigError, load, validate
 from humwatch.events import BAND, WIDE, ClipRecorder, EventDetector
-from humwatch.fingerprint import Baseline
+from humwatch.fingerprint import Baseline, load_baseline, save_baseline
+from humwatch.health import check as health_check
 from humwatch.minute import Minute, summarise
 from humwatch.service import MinuteProcessor
 from humwatch.spectrum import Analyzer, Frame
@@ -309,3 +310,103 @@ def test_clip_upload(cfg, tmp_path, server):
     path, headers, body = server.seen[0]
     assert path == "/api/clip.php" and headers["X-HumWatch-Event"] == "100-wide" and body == b"fLaC123"
     assert store.pending_clips() == []
+
+
+def interim_processor(cfg):
+    analyzer = Analyzer(cfg)
+    baseline = Baseline("test", 0, analyzer.band_freqs,
+                        np.full(len(analyzer.band_freqs), -90.0), -60.0, -90.0, interim=True)
+    return analyzer, MinuteProcessor(cfg, analyzer.band_freqs, baseline)
+
+
+def test_interim_baseline_is_provisional_and_claims_no_excess(cfg):
+    analyzer, processor = interim_processor(cfg)
+    rng = np.random.default_rng(3)
+    audio = sine(67, 0.01) + sine(129, 0.01)
+    frames = [analyzer.process(60 + i, audio + rng.normal(0, 1e-5, 96000)) for i in range(40)]
+    for offset in range(15):
+        row = processor.process(summarise(60 + 60 * offset, frames))
+    assert row["state"] == "on"
+    assert row["provisional"] is True
+    assert row["excess"] is None
+    assert all(tone["excess"] is None for tone in row["tones"])
+    assert sum(tone["present"] for tone in row["tones"]) == 2
+
+
+def test_real_stop_under_interim_baseline_is_not_a_fault(cfg):
+    _, processor = interim_processor(cfg)
+    quiet = Minute(t=60, n_frames=60, l90=-76.0)
+    assert health_check(cfg, quiet, processor.baseline) is None
+    dead = Minute(t=60, n_frames=60, l90=-85.0)
+    assert health_check(cfg, dead, processor.baseline) == "below_baseline"
+
+
+def test_interim_baseline_sits_under_the_tones():
+    freqs = np.arange(30, 260.5, 0.5)
+    spectra = np.full((90, len(freqs)), -80.0)
+    spectra[:, freqs == 130.0] = -50.0
+    minutes = [(i * 60, -60.0, -70.0, 3, "on") for i in range(90)]
+    built = learn.build_interim_baseline("m", freqs, np.arange(90) * 60, spectra, minutes)
+    assert built.interim is True
+    assert built.spectrum_db[freqs == 130.0][0] == pytest.approx(-80.0)
+
+
+def test_interim_baseline_needs_enough_minutes():
+    freqs = np.arange(30, 260.5, 0.5)
+    spectra = np.full((10, len(freqs)), -80.0)
+    minutes = [(i * 60, -60.0, -70.0, 3, "on") for i in range(10)]
+    with pytest.raises(ValueError):
+        learn.build_interim_baseline("m", freqs, np.arange(10) * 60, spectra, minutes)
+
+
+def test_baseline_round_trip_keeps_interim(cfg):
+    freqs = np.arange(3.0)
+    save_baseline(cfg["paths"]["baseline"], Baseline("test", 1, freqs, freqs, -1.0, -2.0, interim=True))
+    assert load_baseline(cfg["paths"]["baseline"], "test").interim is True
+
+
+def stop_data(groups_during=0, level_during=-50.0, minutes=60):
+    times = np.arange(480) * 60
+    groups = np.full(480, 4)
+    levels = np.full(480, -44.0)
+    groups[200:200 + minutes] = groups_during
+    levels[200:200 + minutes] = level_during
+    return times, groups, levels
+
+
+def test_find_stops_finds_a_stop():
+    found = learn.find_stops(*stop_data())
+    assert [(stop["start"], stop["end"], stop["verdict"]) for stop in found] == [(12000, 15600, "likely")]
+    assert found[0]["level_drop"] == pytest.approx(6.0)
+
+
+def test_low_load_with_tones_is_not_a_stop():
+    assert learn.find_stops(*stop_data(groups_during=3, level_during=-48.0)) == []
+
+
+def test_tones_masked_without_a_level_drop_is_weak():
+    assert learn.find_stops(*stop_data(level_during=-43.0))[0]["verdict"] == "weak"
+
+
+def test_huge_drop_points_at_the_mic():
+    assert learn.find_stops(*stop_data(level_during=-70.0))[0]["verdict"] == "check_mic"
+
+
+def test_short_dropouts_are_ignored_and_brief_tones_bridged():
+    assert learn.find_stops(*stop_data(minutes=10)) == []
+    times, groups, levels = stop_data()
+    groups[220:222] = 4
+    assert len(learn.find_stops(times, groups, levels)) == 1
+
+
+def test_missing_context_is_weak():
+    times, groups, levels = stop_data()
+    assert learn.find_stops(times[200:260], groups[200:260], levels[200:260])[0]["verdict"] == "weak"
+
+
+def test_other_lines_ignores_the_tone_groups():
+    freqs = np.arange(30, 260.5, 0.5)
+    spectrum = np.full(len(freqs), -80.0)
+    spectrum[freqs == 130.0] = -50.0
+    spectrum[freqs == 100.0] = -50.0
+    assert learn.other_lines(freqs, spectrum, [[128, 132]]) == 1

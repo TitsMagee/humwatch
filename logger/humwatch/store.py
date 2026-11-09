@@ -77,10 +77,10 @@ class Store:
             (mic_period, start, end),
         ).fetchall()
 
-    def spectra(self, mic_period):
+    def spectra(self, mic_period, since=0):
         """Return (times, matrix of dB), one row per minute."""
         rows = self.db.execute(
-            "SELECT t, centi_db FROM spectra WHERE mic_period=? ORDER BY t", (mic_period,)
+            "SELECT t, centi_db FROM spectra WHERE mic_period=? AND t>=? ORDER BY t", (mic_period, since)
         ).fetchall()
         if not rows:
             return np.array([]), np.empty((0, 0))

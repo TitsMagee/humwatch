@@ -8,7 +8,7 @@ import time
 import numpy as np
 
 from . import health
-from .detector import FAULT, Detector, ReferenceLevel
+from .detector import FAULT, OFF, ON, Detector, ReferenceLevel
 from .events import ClipRecorder, EventDetector
 from .fingerprint import ToneMeter, load_baseline
 from .minute import MinuteBuilder
@@ -73,8 +73,10 @@ class MinuteProcessor:
 
         excess = None
         wind = None
+        interim = self.baseline is not None and self.baseline.interim
         if self.baseline is not None and level is not None:
-            excess = level - self.baseline.band_l90_db
+            # An interim baseline has no stopped level, so there is no honest excess
+            excess = None if interim else level - self.baseline.band_l90_db
             threshold = float(self.cfg["wind"]["sub_excess_db"])
             wind = minute.sub_l50 - self.baseline.sub_db >= threshold
 
@@ -83,7 +85,7 @@ class MinuteProcessor:
             "mic_period": self.cfg["mic_period"],
             "n_frames": minute.n_frames,
             "state": state,
-            "provisional": self.detector.provisional,
+            "provisional": self.detector.provisional or (interim and state in (ON, OFF)),
             "fault": fault,
             "calibrated": self.calibrated,
             "l90": _round(minute.l90),
@@ -97,7 +99,10 @@ class MinuteProcessor:
             "wind": wind,
             "groups_present": groups,
             "tones": [
-                {key: tone[key] for key in ("low", "high", "hz", "db", "excess", "present")}
+                {
+                    **{key: tone[key] for key in ("low", "high", "hz", "db", "present")},
+                    "excess": None if interim else tone["excess"],
+                }
                 for tone in tones
             ],
         }

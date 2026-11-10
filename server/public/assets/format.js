@@ -168,3 +168,59 @@ export function runningShare(history) {
       : `Based on ${duration(known * 60)} of readings.`,
   };
 }
+
+// The headline clock for a run: whole days, hours and minutes, leading zeros dropped
+export function runClock(seconds) {
+  const total = Math.max(0, Math.floor(seconds / 60));
+  const days = Math.floor(total / 1440);
+  const hours = Math.floor((total % 1440) / 60);
+  const minutes = total % 60;
+  const parts = [[days, "day"], [hours, "hour"], [minutes, "minute"]]
+    .filter(([count], index, all) => count > 0 || all.slice(0, index).some(([earlier]) => earlier > 0) || index === 2)
+    .map(([count, name]) => ({ count, unit: `${name}${count === 1 ? "" : "s"}` }));
+  const words = parts.map((part) => `${part.count} ${part.unit}`);
+  const text = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words[0];
+  return { parts, text };
+}
+
+// How many times the background's sound energy a level above it carries
+export function energyTimes(db) {
+  const times = 10 ** (db / 10);
+  return times < 10 ? times.toFixed(1).replace(/\.0$/, "") : String(Math.round(times));
+}
+
+function aboveNote(db) {
+  return db >= 1
+    ? ` That's about ${energyTimes(db)} times the sound energy of the background alone. Every 10 dB is roughly a doubling in how loud it seems.`
+    : "";
+}
+
+export function averageExcess(history) {
+  const recent = history && history.recent;
+  const days = recent ? Math.max(1, Math.round(((recent.until ?? history.generated_at) - recent.since) / 86400)) : 0;
+  const span = days === 1 ? "day" : `${days} days`;
+  if (recent && typeof recent.mean_excess === "number") {
+    return {
+      db: recent.mean_excess,
+      note: `The average of every running minute over the last ${span}, compared with the level measured while it was stopped.${aboveNote(recent.mean_excess)}`,
+    };
+  }
+  const typical = history && history.typical;
+  if (typical && typeof typical.usual_excess === "number") {
+    return {
+      db: typical.usual_excess,
+      note: `The usual level of every running minute over the last ${span}, compared with the level measured while it was stopped.${aboveNote(typical.usual_excess)}`,
+    };
+  }
+  return null;
+}
+
+export function loudestExcess(history, label) {
+  const record = history && history.record;
+  if (!record || typeof record.excess !== "number") return null;
+  return {
+    db: record.excess,
+    t: record.t,
+    note: `The loudest steady 15 minutes logged, with ${label} running throughout, on ${dateTime(record.t)}. Passing sounds don't count.${aboveNote(record.excess)}`,
+  };
+}

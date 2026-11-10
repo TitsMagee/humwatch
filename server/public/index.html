@@ -18,11 +18,43 @@
 <main>
   <section class="now" aria-labelledby="status-headline">
     <p class="site-title" id="site-title">Live hum monitor</p>
-    <div class="status" aria-live="polite">
-      <h1 id="status-headline">Checking the latest reading</h1>
+    <div class="status">
+      <h1 id="status-headline" aria-live="polite">Checking the latest reading</h1>
+      <p class="status-sub" id="status-sub" hidden>
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="status-sub-text">of continuous hum</span>
+        <button type="button" class="info" id="run-info" aria-expanded="false" aria-controls="run-tip" aria-label="About this run">i</button>
+        <span class="tip" id="run-tip" role="tooltip"></span>
+      </p>
       <p class="status-detail" id="status-detail">This page needs JavaScript to show live readings.</p>
       <p class="status-time" id="status-time"></p>
     </div>
+
+    <dl class="stats" id="stats" hidden>
+      <div class="stat" id="stat-average">
+        <dt>Average above background <button type="button" class="info" aria-expanded="false" aria-controls="tip-average" aria-label="About the average">i</button></dt>
+        <dd><span class="stat-value" id="average-value"></span></dd>
+        <dd class="tip" id="tip-average" role="tooltip"></dd>
+      </div>
+      <div class="stat" id="stat-loudest">
+        <dt>Loudest above background <button type="button" class="info" aria-expanded="false" aria-controls="tip-loudest" aria-label="About the loudest reading">i</button></dt>
+        <dd><span class="stat-value" id="loudest-value"></span></dd>
+        <dd class="tip" id="tip-loudest" role="tooltip"></dd>
+      </div>
+      <div class="stat" id="stat-longest">
+        <dt>Longest unbroken run <button type="button" class="info" aria-expanded="false" aria-controls="tip-longest" aria-label="About the longest run">i</button></dt>
+        <dd><span class="stat-value" id="longest-value"></span></dd>
+        <dd class="tip" id="tip-longest" role="tooltip"></dd>
+      </div>
+      <div class="stat" id="stat-share">
+        <dt><span id="share-label"></span> <button type="button" class="info" aria-expanded="false" aria-controls="tip-share" aria-label="About this share">i</button></dt>
+        <dd><span class="stat-value" id="share-value"></span></dd>
+        <dd class="share-bar" aria-hidden="true"><span id="share-fill"></span></dd>
+        <dd class="tip" id="tip-share" role="tooltip"></dd>
+      </div>
+    </dl>
+    <p class="since-open" id="since-open" hidden></p>
+
     <canvas id="wave" class="wave" aria-hidden="true"></canvas>
     <p class="wobble-note" id="wobble-note" hidden></p>
 
@@ -61,18 +93,9 @@
     </details>
   </section>
 
-  <section class="record" aria-labelledby="history-heading">
-    <h2 id="history-heading">How long it keeps going</h2>
-    <p class="history-note" id="history-note" hidden></p>
-    <div id="history-empty"><p>The history starts once monitoring has been running for a while.</p></div>
-    <dl class="facts" id="history-facts" hidden>
-      <div id="fact-current"><dt id="current-label"></dt><dd id="current-value"></dd><p id="current-note"></p></div>
-      <div id="fact-longest"><dt>Longest unbroken run</dt><dd id="longest-value"></dd><p id="longest-note"></p></div>
-      <div id="fact-share"><dt id="share-label"></dt><dd id="share-value"></dd><p id="share-note"></p></div>
-    </dl>
-
+  <section class="record" aria-labelledby="loudest-heading" id="record-section" hidden>
     <div class="loudest" id="loudest" hidden>
-      <h3>The loudest it has been</h3>
+      <h2 id="loudest-heading">The loudest it has been</h2>
       <p class="loudest-line" id="loudest-line"></p>
       <p id="loudest-when"></p>
       <p id="loudest-no-play" hidden>This one can't be played. The steady tones logged at the time don't account for its level, so a generated version would misrepresent it.</p>
@@ -81,6 +104,12 @@
         <button type="button" id="toggle-record" class="outline" aria-pressed="false" hidden></button>
       </div>
       <p class="record-status" id="record-status" role="status"></p>
+    </div>
+
+    <div class="small-print" id="small-print">
+      <h2>About these figures</h2>
+      <p class="history-note" id="history-note" hidden></p>
+      <dl id="small-print-list"></dl>
     </div>
   </section>
 

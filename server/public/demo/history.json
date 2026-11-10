@@ -15,5 +15,5 @@
       { "low": 176, "high": 178, "hz": 177.5, "db": -53.0, "excess": 24.0, "present": true }
     ]
   },
-  "recent": { "since": 1797408000, "on_percent": 96.4, "minutes_on": 40250, "minutes_off": 1500, "minutes_unknown": 1450 }
+  "recent": { "since": 1797408000, "on_percent": 96.4, "mean_excess": 8.6, "minutes_on": 40250, "minutes_off": 1500, "minutes_unknown": 1450 }
 }

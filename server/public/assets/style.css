@@ -23,6 +23,9 @@
 
 * { box-sizing: border-box; }
 
+/* Elements given a display of their own must still hide */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
@@ -87,11 +90,189 @@ h1 {
 }
 
 .status-detail {
-  margin-top: 1.25rem;
+  margin-top: 1rem;
   max-width: 32ch;
   font-size: clamp(1.25rem, 2.6vw, 1.875rem);
   line-height: 1.25;
   text-wrap: pretty;
+}
+
+/* The running clock: numbers big and lit, the units quieter */
+
+.clock-part { white-space: nowrap; }
+
+.clock-number {
+  display: inline-block;
+  color: var(--sodium);
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-unit {
+  font-size: 0.55em;
+  font-weight: 600;
+  color: #fff;
+}
+
+.clock-number.tick { animation: tick 0.9s ease-out; }
+
+@keyframes tick {
+  0% { transform: translateY(-0.25em); opacity: 0; }
+  60% { transform: translateY(0.04em); opacity: 1; }
+  100% { transform: none; }
+}
+
+.status-sub {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+  color: #fff;
+  font-size: clamp(1.5rem, 3.4vw, 2.5rem);
+  font-weight: 600;
+  font-stretch: 85%;
+  line-height: 1.1;
+}
+
+.live-dot {
+  flex: none;
+  width: 0.45em;
+  height: 0.45em;
+  border-radius: 50%;
+  background: var(--sodium);
+  box-shadow: 0 0 0 0 rgb(244 185 66 / 0.6);
+  animation: pulse 2s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgb(244 185 66 / 0.6); }
+  70% { box-shadow: 0 0 0 0.6em rgb(244 185 66 / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(244 185 66 / 0); }
+}
+
+/* Headline figures */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0;
+  margin: 0 var(--gutter) clamp(1.5rem, 3vw, 2.5rem);
+  border-top: 1px solid var(--night-raised);
+}
+
+.stat {
+  position: relative;
+  padding: 1.25rem 1.25rem 1.25rem 0;
+  border-bottom: 1px solid var(--night-raised);
+}
+
+.stat dt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--mist-muted);
+  font-weight: 600;
+  font-size: 0.9375rem;
+}
+
+.stat dd { margin: 0; }
+
+.stat-value {
+  display: block;
+  margin-top: 0.25rem;
+  color: #fff;
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  font-weight: 700;
+  font-stretch: 80%;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.2s;
+}
+
+.stat:hover .stat-value, .stat:focus-within .stat-value { color: var(--sodium); }
+
+.share-bar {
+  height: 0.375rem;
+  margin-top: 0.625rem;
+  border-radius: 0.375rem;
+  background: var(--night-raised);
+  overflow: hidden;
+}
+
+.share-bar span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--sodium);
+  transition: width 1.2s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.info {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  min-height: 0;
+  padding: 0;
+  border: 1.5px solid var(--mist-muted);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--mist-muted);
+  font-family: Georgia, serif;
+  font-size: 0.8125rem;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.info:hover, .info[aria-expanded="true"] {
+  border-color: var(--sodium);
+  background: var(--sodium);
+  color: var(--ink);
+}
+
+/* A larger tap target than it looks */
+.info { position: relative; }
+.info::after { content: ""; position: absolute; inset: -0.6rem; }
+
+.tip {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  top: calc(100% - 0.5rem);
+  left: 0;
+  width: min(22rem, calc(100vw - 2rem));
+  margin: 0;
+  padding: 0.75rem 0.875rem;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 400;
+  line-height: 1.4;
+  font-stretch: 100%;
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 0.35);
+}
+
+.status-sub .tip { top: calc(100% + 0.5rem); font-stretch: 100%; }
+
+.stat:hover .tip,
+.stat:has(.info:focus-visible) .tip,
+.status-sub:hover .tip,
+.status-sub:has(.info:focus-visible) .tip,
+.info[aria-expanded="true"] ~ .tip,
+.stat:has(.info[aria-expanded="true"]) .tip {
+  display: block;
+}
+
+/* Tips at the right-hand end of a row open leftwards, to stay on screen */
+@media (min-width: 52rem) {
+  .stat:nth-child(4) .tip, .stat:nth-child(3) .tip { left: auto; right: 0; }
+}
+
+.since-open {
+  margin: -0.75rem var(--gutter) 1.5rem;
+  color: var(--mist-muted);
+  font-size: 0.9375rem;
 }
 
 .status-time {
@@ -271,16 +452,15 @@ dd {
 
 .facts p { margin-top: 0.375rem; color: var(--ink-muted); max-width: 30ch; }
 
-.loudest {
-  margin-top: clamp(2.5rem, 5vw, 4rem);
+.loudest + .small-print {
   padding-top: clamp(1.5rem, 3vw, 2rem);
-  border-top: 2px solid var(--ink);
+  border-top: 1px solid var(--rule);
 }
 
 h3 { font-size: 1.25rem; font-weight: 600; }
 
 .loudest-line {
-  margin-top: 0.25rem;
+  margin-top: 0.5rem;
   font-size: clamp(2.25rem, 5vw, 3.75rem);
   font-weight: 700;
   font-stretch: 80%;
@@ -310,6 +490,23 @@ h3 { font-size: 1.25rem; font-weight: 600; }
 
 .loudest .record-status { margin-top: 0.75rem; min-height: 1.55em; color: var(--ink); font-weight: 600; }
 
+.small-print { margin-top: clamp(2.5rem, 5vw, 4rem); max-width: var(--measure); }
+
+.loudest[hidden] + .small-print { margin-top: 0; }
+
+.small-print dl { margin-top: 1rem; }
+
+.small-print dt { margin-top: 1rem; }
+
+.small-print dd {
+  margin: 0.25rem 0 0;
+  color: var(--ink-muted);
+  font-size: inherit;
+  font-weight: 400;
+  font-stretch: 100%;
+  line-height: 1.55;
+}
+
 .research { border-top: 1px solid var(--rule); }
 
 .research > p, .method > p { margin-top: 0.75rem; max-width: var(--measure); }
@@ -327,6 +524,11 @@ h3 { font-size: 1.25rem; font-weight: 600; }
 .method ul { margin-top: 1rem; padding-left: 1.25rem; max-width: var(--measure); }
 
 .method li + li { margin-top: 0.5rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+  .share-bar span { transition: none; }
+}
 
 @media (forced-colors: active) {
   button { border-color: ButtonText; }

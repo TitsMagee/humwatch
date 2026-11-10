@@ -1,6 +1,6 @@
 import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
 import { beatPairs, envelope, wobbleSentence } from "./wobble.js";
-import { capitalise, currentRun, dateOnly, dateTime, duration, figures, longestRun, runningShare, signedDb, status } from "./format.js";
+import { averageExcess, capitalise, currentRun, dateOnly, dateTime, duration, figures, longestRun, loudestExcess, runClock, runningShare, signedDb, status } from "./format.js";
 
 const LIVE_REFRESH_MS = 10000;
 const HISTORY_REFRESH_MS = 300000;
@@ -18,6 +18,9 @@ let history = null;
 const player = new HumPlayer();
 let playingFrom = null;
 let chartKey = null;
+let clockKey = null;
+let currentKind = null;
+let humSecondsWatched = 0;
 
 async function getJson(path) {
   try {
@@ -36,19 +39,79 @@ function backgroundDb(reading) {
 
 // Live view
 
+// The run the headline counts: only when the live reading and the history agree it's on
+function runningNow(current) {
+  const run = history && history.current_run;
+  return current.kind === "on" && run && run.state === "on" ? run : null;
+}
+
 function renderStatus() {
   const now = Date.now() / 1000;
   const current = status(live, site.source_label, now, Boolean(history && history.last_t));
-  $("status-headline").textContent = current.headline;
-  $("status-detail").textContent = current.detail;
+  currentKind = current.kind;
+  const run = runningNow(current);
+  $("status-sub").hidden = !run;
+  $("status-headline").setAttribute("aria-live", run ? "off" : "polite");
+  if (run) {
+    renderClock();
+    const about = currentRun(history, site.source_label, now);
+    $("run-tip").textContent = `Counting since ${dateTime(run.start_t)}. ${about ? about.note : ""}`.trim();
+    $("status-detail").textContent = typeof live.excess === "number" && live.excess >= 0.5
+      ? `Right now it's ${signedDb(live.excess)} above the background.`
+      : current.detail;
+  } else {
+    clockKey = null;
+    $("status-headline").textContent = current.headline;
+    $("status-detail").textContent = current.detail;
+    document.title = `${current.headline}: ${site.title}`;
+  }
   $("status-time").textContent =
     live && current.kind !== "stale" ? `Updated ${duration(Math.max(0, now - live.received_at))} ago` : "";
-  document.title = `${current.headline}: ${site.title}`;
   document.body.dataset.state = current.kind;
   wave.setTones(current.kind === "on" || current.kind === "off" || current.kind === "unknown" ? live.tones : [],
     current.kind === "fault" || current.kind === "stale" || current.kind === "none");
   renderTones(current);
   renderListen(current);
+}
+
+// "4 days, 3 hours and 12 minutes", ticking over each minute
+function renderClock() {
+  const run = history && history.current_run;
+  if (!run) return;
+  const clock = runClock(Math.max(Date.now() / 1000, run.end_t) - run.start_t);
+  if (clock.text === clockKey) return;
+  const changed = clockKey !== null;
+  clockKey = clock.text;
+  const nodes = [];
+  clock.parts.forEach((part, index) => {
+    if (index > 0) nodes.push(index === clock.parts.length - 1 ? " and " : ", ");
+    const number = document.createElement("span");
+    number.className = "clock-number";
+    number.textContent = part.count;
+    // A small flourish on the number that just ticked over
+    if (changed && index === clock.parts.length - 1 && !reducedMotion.matches) number.classList.add("tick");
+    const unit = document.createElement("span");
+    unit.className = "clock-unit";
+    unit.textContent = ` ${part.unit}`;
+    const group = document.createElement("span");
+    group.className = "clock-part";
+    group.append(number, unit);
+    nodes.push(group);
+  });
+  $("status-headline").replaceChildren(...nodes);
+  document.title = `${clock.text} of continuous hum: ${site.title}`;
+}
+
+// Every second the visitor spends here while the source runs
+function renderSinceOpen() {
+  if (currentKind === "on" && !document.hidden) humSecondsWatched += 1;
+  const shown = humSecondsWatched >= 5;
+  $("since-open").hidden = !shown;
+  if (!shown) return;
+  const minutes = Math.floor(humSecondsWatched / 60);
+  const seconds = humSecondsWatched % 60;
+  const spent = minutes ? `${minutes} min ${String(seconds).padStart(2, "0")} s` : `${seconds} seconds`;
+  $("since-open").textContent = `You've been here ${spent}. ${capitalise(site.source_label)} hummed through every second of it.`;
 }
 
 function renderTones(current) {
@@ -368,36 +431,79 @@ function wireAudio() {
 
 // History view
 
+// Numbers count up to their value when they first appear or change
+function countTo(element, target, format) {
+  const from = Number(element.dataset.value ?? 0);
+  element.dataset.value = String(target);
+  if (reducedMotion.matches || from === target) {
+    element.textContent = format(target);
+    return;
+  }
+  const started = performance.now();
+  const step = (time) => {
+    const progress = Math.min(1, (time - started) / 1100);
+    const eased = 1 - (1 - progress) ** 3;
+    element.textContent = format(from + (target - from) * eased);
+    if (progress < 1 && element.dataset.value === String(target)) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+const plusDb = (value) => `+${value.toFixed(1)} dB`;
+
 function renderHistory() {
-  const now = Date.now() / 1000;
-  const run = currentRun(history, site.source_label, now);
   const shown = figures(history);
   const past = Boolean(history && history.earlier);
+  const average = averageExcess(shown);
+  const loudest = loudestExcess(shown, site.source_label);
   const longest = longestRun(shown);
   const share = runningShare(shown);
-  const any = run || longest || share;
-  $("history-empty").hidden = Boolean(any);
-  $("history-facts").hidden = !any;
+  const notes = [];
+
+  fill("stat-average", average, () => {
+    countTo($("average-value"), average.db, plusDb);
+    $("tip-average").textContent = average.note;
+    notes.push(["Average above background", average.note]);
+  });
+  fill("stat-loudest", loudest, () => {
+    countTo($("loudest-value"), loudest.db, plusDb);
+    $("tip-loudest").textContent = loudest.note;
+    notes.push(["Loudest above background", loudest.note]);
+  });
+  fill("stat-longest", longest, () => {
+    const run = shown.longest_run;
+    const atLeast = longest.value.startsWith("At least");
+    countTo($("longest-value"), run.end_t - run.start_t, (value) => `${duration(value)}${atLeast ? "+" : ""}`);
+    const note = `From ${dateTime(run.start_t)} to ${dateTime(run.end_t)}. ${longest.note}`;
+    $("tip-longest").textContent = note;
+    notes.push(["Longest unbroken run", note]);
+  });
+  fill("stat-share", share, () => {
+    const percent = Number.parseFloat(share.value);
+    $("share-label").textContent = share.label;
+    countTo($("share-value"), percent, (value) => `${value.toFixed(1)}%`);
+    $("share-fill").style.width = `${Math.min(100, Math.max(0, percent))}%`;
+    $("tip-share").textContent = share.note;
+    notes.push([share.label, share.note]);
+  });
+  $("stats").hidden = notes.length === 0;
+
   const ended = shown && shown.monitoring_stopped;
   $("history-note").hidden = !ended;
   if (ended) {
-    const opening = past && run ? "Apart from the current run, these figures come from earlier readings, which end" : "These readings end";
+    const opening = past && history.current_run
+      ? "Apart from the current run, these figures come from earlier readings, which end"
+      : "These figures come from readings that end";
     $("history-note").textContent = `${opening} on ${dateOnly(shown.last_t)}. ${site.history_note || ""}`.trim();
   }
-  fill("fact-current", run, () => {
-    $("current-label").textContent = run.label;
-    $("current-value").textContent = run.value;
-    $("current-note").textContent = run.note;
-  });
-  fill("fact-longest", longest, () => {
-    $("longest-value").textContent = longest.value;
-    $("longest-note").textContent = longest.note;
-  });
-  fill("fact-share", share, () => {
-    $("share-label").textContent = share.label;
-    $("share-value").textContent = share.value;
-    $("share-note").textContent = share.note;
-  });
+  $("small-print-list").replaceChildren(...notes.flatMap(([label, note]) => {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const detail = document.createElement("dd");
+    detail.textContent = note;
+    return [term, detail];
+  }));
+  $("small-print").hidden = notes.length === 0 && !ended;
 
   const record = shown && shown.record;
   const playable = record && record.excess !== null
@@ -414,11 +520,36 @@ function renderHistory() {
       `The loudest 15 minutes logged with ${past ? "the earlier" : "this"} microphone, on ${dateTime(record.t)}, with ${site.source_label} running throughout${record.wind_checked === false ? "" : " and no wind flagged"}. This is the steady level, so passing sounds don't count.${record.wind_checked === false ? " Wind wasn't measured for this reading." : ""}`;
     $("play-record").hidden = !playable;
   }
+  $("record-section").hidden = !record && $("small-print").hidden;
+  // The headline clock depends on the current run
+  if (live) renderStatus();
 }
 
 function fill(id, value, write) {
   $(id).hidden = !value;
   if (value) write();
+}
+
+// Tooltips show on hover or focus, and tapping the "i" pins one open
+function wireTips() {
+  const close = (except) => {
+    for (const button of document.querySelectorAll(".info[aria-expanded='true']")) {
+      if (button !== except) button.setAttribute("aria-expanded", "false");
+    }
+  };
+  for (const button of document.querySelectorAll(".info")) {
+    button.setAttribute("aria-describedby", button.getAttribute("aria-controls"));
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const open = button.getAttribute("aria-expanded") !== "true";
+      close(button);
+      button.setAttribute("aria-expanded", String(open));
+    });
+  }
+  document.addEventListener("click", () => close());
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") close();
+  });
 }
 
 // Loading
@@ -472,6 +603,7 @@ async function main() {
     $("source-link").replaceChildren(link, ".");
   }
   wireAudio();
+  wireTips();
   // History first, because the headline depends on whether there is any
   await refreshHistory();
   await refreshLive();
@@ -480,6 +612,10 @@ async function main() {
   }
   setInterval(refreshLive, LIVE_REFRESH_MS);
   setInterval(refreshHistory, HISTORY_REFRESH_MS);
+  setInterval(() => {
+    if (!$("status-sub").hidden) renderClock();
+    renderSinceOpen();
+  }, 1000);
   addEventListener("resize", () => {
     if (live) renderStatus();
   });

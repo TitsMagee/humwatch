@@ -230,3 +230,21 @@ test("earlier figures are used only when the history offers them", () => {
   assert.equal(figures(history), history);
   assert.equal(figures(null), null);
 });
+
+test("the run clock drops leading zeros but keeps the rest", async () => {
+  const { runClock } = await import("../public/assets/format.js");
+  assert.equal(runClock(4 * 86400 + 3 * 3600 + 12 * 60 + 59).text, "4 days, 3 hours and 12 minutes");
+  assert.equal(runClock(86400 + 60).text, "1 day, 0 hours and 1 minute");
+  assert.equal(runClock(2 * 3600).text, "2 hours and 0 minutes");
+  assert.equal(runClock(30).text, "0 minutes");
+});
+
+test("average excess prefers the mean, falls back to the usual level", async () => {
+  const { averageExcess, energyTimes } = await import("../public/assets/format.js");
+  const recent = { since: NOW - 30 * 86400, until: NOW };
+  assert.equal(averageExcess({ recent: { ...recent, mean_excess: 6.4 }, typical: { usual_excess: 6.1 } }).db, 6.4);
+  assert.equal(averageExcess({ recent, typical: { usual_excess: 6.1 } }).db, 6.1);
+  assert.equal(averageExcess({ recent }), null);
+  assert.equal(energyTimes(10), "10");
+  assert.equal(energyTimes(6), "4");
+});

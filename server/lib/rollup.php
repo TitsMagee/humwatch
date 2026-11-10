@@ -226,6 +226,12 @@ function period_summary(PDO $db, array $current, int $now): array
     $counts->execute([$period, $since]);
     $byState = array_column($counts->fetchAll(), 'n', 'state');
     $known = (int) ($byState['on'] ?? 0) + (int) ($byState['off'] ?? 0);
+    // How far above the background the source sits on average while running
+    $average = $db->prepare(
+        "SELECT AVG(excess) FROM minutes WHERE mic_period = ? AND t >= ? AND state = 'on' AND excess IS NOT NULL"
+    );
+    $average->execute([$period, $since]);
+    $meanExcess = $average->fetchColumn();
     $typical = typical_reading($db, $period, $since, $lastT);
 
     return [
@@ -253,6 +259,7 @@ function period_summary(PDO $db, array $current, int $now): array
             'since' => $since,
             'until' => $lastT,
             'on_percent' => $known ? round(100 * (int) ($byState['on'] ?? 0) / $known, 1) : null,
+            'mean_excess' => $meanExcess === null || $meanExcess === false ? null : round((float) $meanExcess, 1),
             'minutes_on' => (int) ($byState['on'] ?? 0),
             'minutes_off' => (int) ($byState['off'] ?? 0),
             'minutes_unknown' => (int) ($byState['unknown'] ?? 0) + (int) ($byState['fault'] ?? 0),

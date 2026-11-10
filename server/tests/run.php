@@ -135,6 +135,7 @@ check('history shows the current run', $history['current_run']['state'] === 'on'
 check('longest run found', $history['longest_run']['start_t'] === $start && $history['longest_run']['ended_by'] === 'off');
 check('record is the loudest all-on block', $history['record'] !== null && $history['record']['l90'] === 45.0 && $history['record']['tones'] !== []);
 check('on-percent counts known minutes', $history['recent']['minutes_off'] === 20 && $history['recent']['minutes_on'] === 57);
+check('average excess counts running minutes only', $history['recent']['mean_excess'] === 6.0);
 
 // Rollup again changes nothing, and a later backlog is picked up
 run_rollup($db, $config, $later + 300);

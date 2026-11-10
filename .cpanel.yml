@@ -1,0 +1,14 @@
+---
+# Deploys HumWatch from cPanel's Git Version Control ("Deploy HEAD Commit").
+# Copies only; never deletes. Live files kept out of git (config.php, site.json,
+# public data, clips) are never touched because they aren't in the repo.
+deployment:
+  tasks:
+    - export PRIVATE=/home/limitoco/humwatch
+    - export WEBROOT=/home/limitoco/humwatch.limito.co.uk
+    # Private code first, so the new page never runs against old server code.
+    - /bin/mkdir -p $PRIVATE
+    - /bin/cp -R server/lib server/cron $PRIVATE/
+    - /bin/cp server/.htaccess server/schema.sql server/config.example.php $PRIVATE/
+    # Public site, including .htaccess files.
+    - /bin/cp -R server/public/. $WEBROOT/

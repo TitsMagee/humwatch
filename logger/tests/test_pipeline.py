@@ -410,3 +410,14 @@ def test_other_lines_ignores_the_tone_groups():
     spectrum[freqs == 130.0] = -50.0
     spectrum[freqs == 100.0] = -50.0
     assert learn.other_lines(freqs, spectrum, [[128, 132]]) == 1
+
+
+def test_minutes_between_accepts_times_read_back_from_spectra(tmp_path):
+    store = Store(tmp_path)
+    for t in (60, 120):
+        store.save_minute(
+            {"t": t, "mic_period": "m", "l90": -40.0, "sub_l50": -50.0, "groups_present": 0, "state": "unknown"},
+            np.zeros(4),
+        )
+    times, _ = store.spectra("m")
+    assert [row[0] for row in store.minutes_between("m", times[0], times[-1] + 60)] == [60, 120]

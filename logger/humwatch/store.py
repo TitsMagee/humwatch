@@ -74,7 +74,8 @@ class Store:
         return self.db.execute(
             "SELECT t, l90, sub_l50, groups_present, state FROM minutes "
             "WHERE mic_period=? AND t>=? AND t<? ORDER BY t",
-            (mic_period, start, end),
+            # int(): numpy scalars bind as blobs, which no INTEGER row matches
+            (mic_period, int(start), int(end)),
         ).fetchall()
 
     def spectra(self, mic_period, since=0):

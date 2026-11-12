@@ -6,7 +6,7 @@ import { beatPairs, envelope, wobbleSentence } from "../public/assets/wobble.js"
 import { humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "../public/assets/audio.js";
 import {
   aboveByPart, backgroundAt, backgroundNote, chartPoints, currentRun, duration, figures, hasBackground, isNight, liveAbove,
-  longestRun, readoutLabel, readoutValue, runningShare, signedDb, status, strongestTone,
+  longestRun, readoutLabel, readoutValue, REFERENCE_LEVELS, runningShare, signedDb, status, strongestTone,
 } from "../public/assets/format.js";
 
 const NOW = 1800000000;
@@ -349,4 +349,9 @@ test("the background note says where each level came from", () => {
   const shared = backgroundNote(chart({ background: { day: reference, night: reference } }), "the mill");
   assert.match(shared, /^Day and night share one background/);
   assert.match(backgroundNote(chart({ background: { day: reference, night: null } }), "the mill"), /no night-time background yet/);
+});
+
+test("reference lines are the BS 4142 benchmarks, highest last, each with a short label", () => {
+  assert.deepEqual(REFERENCE_LEVELS.map((level) => level.db), [5, 10]);
+  for (const level of REFERENCE_LEVELS) assert.ok(level.short.length < level.label.length);
 });

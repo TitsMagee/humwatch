@@ -329,3 +329,15 @@ export function backgroundNote(chart, label) {
   });
   return `${notes.join(" ")} Day is 07:00 to 23:00. Levels are the hum band's L90, unweighted, in 15 minute blocks.`;
 }
+
+// Reference lines above the background, from BS 4142's benchmarks for industrial sound
+export const REFERENCE_LEVELS = [
+  { db: 5, label: "+5 dB: adverse impact likely (BS 4142)", short: "+5 dB: adverse impact likely" },
+  { db: 10, label: "+10 dB: significant adverse impact (BS 4142), and about twice as loud", short: "+10 dB: significant adverse impact" },
+];
+
+export const REFERENCE_NOTE =
+  "Reference lines: BS 4142 treats industrial sound 5 dB above the background as a sign of adverse impact, " +
+  "and 10 dB above as a sign of significant adverse impact, depending on the context. A 10 dB rise is heard as " +
+  "roughly twice as loud. BS 4142 assesses A-weighted levels, with penalties for tones, so on these unweighted " +
+  "readings the lines are a guide, not an assessment.";

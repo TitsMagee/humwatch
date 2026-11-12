@@ -204,6 +204,35 @@ h1 {
 
 .trend h2 { color: #fff; font-size: clamp(1.5rem, 3.2vw, 2.25rem); }
 
+.trend-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.reference-toggle {
+  min-height: 2.75rem;
+  padding: 0.25rem 1rem;
+  border: 2px solid var(--night-raised);
+  background: transparent;
+  color: var(--mist);
+  font-size: 0.9375rem;
+}
+
+.reference-toggle:hover { background: var(--night-raised); border-color: var(--night-raised); color: #fff; }
+
+.reference-toggle[aria-pressed="true"] { border-color: var(--mist); color: #fff; }
+
+.reference-toggle::before {
+  content: "";
+  display: inline-block;
+  width: 1.25rem;
+  margin-right: 0.5rem;
+  vertical-align: middle;
+  border-top: 2px dashed currentColor;
+}
+
 .range {
   display: inline-flex;
   gap: 0.25rem;
@@ -242,6 +271,7 @@ h1 {
 .key-hum { height: 0; border-top: 3px solid var(--sodium); border-radius: 2px; }
 .key-background { height: 0; border-top: 2px solid var(--mist); }
 .key-above { height: 0.875rem; width: 0.875rem; border-radius: 2px; background: rgb(244 185 66 / 0.3); }
+.key-reference { height: 0; border-top: 2px dashed var(--mist); }
 .key-night { height: 0.875rem; width: 0.875rem; border-radius: 2px; background: #0b1424; outline: 1px solid var(--night-raised); }
 
 .trend-frame { position: relative; margin-top: 1rem; }
@@ -265,6 +295,19 @@ h1 {
 .hum-line { fill: none; stroke: var(--sodium); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
 .hum-line-off { fill: none; stroke: var(--mist-muted); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; stroke-dasharray: 1 5; }
 .gap-mark { fill: none; stroke: #fff; stroke-width: 1.5; }
+.bound-line { fill: none; stroke: var(--mist-muted); stroke-opacity: 0.55; stroke-width: 1; }
+.reference-line { fill: none; stroke: var(--mist); stroke-opacity: 0.8; stroke-width: 1.5; stroke-dasharray: 6 5; }
+
+.reference-text {
+  fill: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  paint-order: stroke;
+  stroke: var(--night);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
 
 .gap-text {
   fill: #fff;
@@ -699,7 +742,8 @@ h3 { font-size: 1.25rem; font-weight: 600; }
 @media (forced-colors: active) {
   button { border-color: ButtonText; }
   .stem, .base-line, .grid-line { stroke: CanvasText; }
-  .hum-line, .background-line, .gap-mark, .scale-mark { stroke: CanvasText; }
+  .hum-line, .background-line, .gap-mark, .scale-mark, .bound-line, .reference-line { stroke: CanvasText; }
+  .reference-text { fill: CanvasText; }
   .hum-line-off { stroke: GrayText; }
   .above-fill { fill: Highlight; fill-opacity: 0.4; }
   .night-band { fill: GrayText; fill-opacity: 0.25; }

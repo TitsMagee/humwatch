@@ -2,7 +2,8 @@ import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel 
 import { beatPairs, envelope, wobbleSentence } from "./wobble.js";
 import {
   aboveByPart, averageExcess, backgroundNote, capitalise, chartPoints, currentRun, dateOnly, dateTime, duration, figures,
-  hasBackground, isNight, liveAbove, longestRun, loudestExcess, readoutLabel, readoutNote, readoutValue, runClock,
+  hasBackground, isNight, liveAbove, longestRun, loudestExcess, readoutLabel, readoutNote, readoutValue, REFERENCE_LEVELS,
+  REFERENCE_NOTE, runClock,
   runningShare, signedDb, status, strongestTone,
 } from "./format.js";
 
@@ -238,6 +239,7 @@ function toneText(tone) {
 
 let trendDays = 3;
 let trendKey = null;
+let showReferences = false;
 
 function trendSource() {
   if (hasBackground(history && history.chart)) return { chart: history.chart, earlier: false };
@@ -257,7 +259,7 @@ function renderTrend() {
   $("trend").hidden = !source;
   if (!source) return;
   const { chart } = source;
-  const key = `${$("trend-chart").clientWidth}:${trendDays}:${history.generated_at}`;
+  const key = `${$("trend-chart").clientWidth}:${trendDays}:${showReferences}:${history.generated_at}`;
   if (key === trendKey) return;
   trendKey = key;
 
@@ -287,6 +289,9 @@ function renderTrend() {
   } else {
     figuresLine.textContent = `${capitalise(site.source_label)} wasn't clearly running at any point in this time.`;
   }
+  $("key-reference").hidden = !showReferences;
+  $("reference-note").hidden = !showReferences;
+  $("reference-note").textContent = REFERENCE_NOTE;
   $("trend-note").textContent = `${source.earlier ? "These readings come from the earlier microphone, as the current one can't be compared with the background yet. " : ""}${backgroundNote(chart, site.source_label)}`;
   drawTrend(chart, points, from, to, ended, `${$("trend-heading").textContent}. ${figuresLine.textContent}`);
 }
@@ -306,8 +311,11 @@ function drawTrend(chart, points, from, to, ended, summary) {
   for (const part of ["day", "night"]) {
     if (chart.background[part]) levels.push(chart.background[part].db);
   }
+  const backgrounds = ["day", "night"].map((part) => chart.background[part]).filter(Boolean).map((level) => level.db);
   const lo = Math.min(...levels) - 3;
-  const hi = Math.max(Math.max(...levels) + 3, lo + 15);
+  // With the reference lines on, leave room for the highest of them
+  const reach = showReferences ? Math.max(...backgrounds) + REFERENCE_LEVELS.at(-1).db + 4 : -Infinity;
+  const hi = Math.max(Math.max(...levels) + 3, lo + 15, reach);
   const x = (t) => ((t - from) / (to - from)) * width;
   const y = (db) => top + ((height - top - bottom) * (hi - db)) / (hi - lo);
 
@@ -355,19 +363,40 @@ function drawTrend(chart, points, from, to, ended, summary) {
     chartSvg.append(svg("polygon", { class: "above-fill", points: [...upper, ...lower].join(" ") }));
   }
 
-  // The background, stepping between its day and night levels
-  let backgroundPath = "";
-  let joined = false;
-  for (const point of points) {
-    if (!point.background) {
-      joined = false;
-      continue;
+  // The plot's upper and lower bounds
+  chartSvg.append(svg("path", { class: "bound-line", d: `M0,${top}H${width}M0,${height - bottom}H${width}` }));
+
+  // The background, stepping between its day and night levels, and lines a set height above it
+  // Risers join the background's steps; reference lines just jump, to keep them quiet
+  const stepPath = (offset, risers = true) => {
+    let path = "";
+    let last = null;
+    for (const point of points) {
+      if (!point.background) {
+        last = null;
+        continue;
+      }
+      const level = y(point.background.db + offset);
+      if (last === level) path += `H${x(point.start + step)}`;
+      else if (last !== null && risers) path += `V${level}H${x(point.start + step)}`;
+      else path += `M${x(point.start)},${level}H${x(point.start + step)}`;
+      last = level;
     }
-    const level = y(point.background.db);
-    backgroundPath += joined ? `V${level}H${x(point.start + step)}` : `M${x(point.start)},${level}H${x(point.start + step)}`;
-    joined = true;
+    return path;
+  };
+  if (showReferences) {
+    const first = points.find((point) => point.background);
+    REFERENCE_LEVELS.forEach((reference, index) => {
+      chartSvg.append(svg("path", { class: "reference-line", d: stepPath(reference.db, false) }));
+      // The lowest label sits under its line and the rest over theirs, so they don't crowd together
+      const offset = index === 0 ? 16 : -6;
+      if (first) {
+        chartSvg.append(svg("text", { class: "reference-text", x: Math.max(x(first.start), 0) + 44, y: y(first.background.db + reference.db) + offset },
+          width < 640 ? reference.short : reference.label));
+      }
+    });
   }
-  chartSvg.append(svg("path", { class: "background-line", d: backgroundPath }));
+  chartSvg.append(svg("path", { class: "background-line", d: stepPath(0) }));
 
   // The hum's level: lit while running, dim while it isn't
   const segments = [];
@@ -478,6 +507,11 @@ function wireRange() {
       renderTrend();
     });
   }
+  $("reference-toggle").addEventListener("click", (event) => {
+    showReferences = !showReferences;
+    event.currentTarget.setAttribute("aria-pressed", String(showReferences));
+    renderTrend();
+  });
 }
 
 // Sample readings for the demo: a week of the hum over a quieter night, with one stop

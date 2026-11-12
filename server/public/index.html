@@ -42,10 +42,13 @@
     <figure class="trend" id="trend" aria-labelledby="trend-heading" hidden>
       <div class="trend-head">
         <h2 id="trend-heading">The last 3 days</h2>
-        <div class="range" role="group" aria-label="How much to show">
-          <button type="button" data-days="1" aria-pressed="false">24 hours</button>
-          <button type="button" data-days="3" aria-pressed="true">3 days</button>
-          <button type="button" data-days="7" aria-pressed="false">7 days</button>
+        <div class="trend-controls">
+          <button type="button" class="reference-toggle" id="reference-toggle" aria-pressed="false">Reference levels</button>
+          <div class="range" role="group" aria-label="How much to show">
+            <button type="button" data-days="1" aria-pressed="false">24 hours</button>
+            <button type="button" data-days="3" aria-pressed="true">3 days</button>
+            <button type="button" data-days="7" aria-pressed="false">7 days</button>
+          </div>
         </div>
       </div>
       <ul class="trend-key">
@@ -53,6 +56,7 @@
         <li><span class="key key-background" aria-hidden="true"></span>Background without it</li>
         <li><span class="key key-above" aria-hidden="true"></span>Above the background</li>
         <li><span class="key key-night" aria-hidden="true"></span>Night</li>
+        <li id="key-reference" hidden><span class="key key-reference" aria-hidden="true"></span>BS 4142 guide levels</li>
       </ul>
       <div class="trend-frame">
         <div class="trend-chart" id="trend-chart"></div>
@@ -61,6 +65,7 @@
       <figcaption>
         <p class="trend-figures" id="trend-figures"></p>
         <p class="trend-note" id="trend-note"></p>
+        <p class="trend-note" id="reference-note" hidden></p>
       </figcaption>
     </figure>
 

@@ -1,6 +1,10 @@
 import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
 import { beatPairs, envelope, wobbleSentence } from "./wobble.js";
-import { averageExcess, capitalise, currentRun, dateOnly, dateTime, duration, figures, longestRun, loudestExcess, runClock, runningShare, signedDb, status } from "./format.js";
+import {
+  aboveByPart, averageExcess, backgroundNote, capitalise, chartPoints, currentRun, dateOnly, dateTime, duration, figures,
+  hasBackground, isNight, liveAbove, longestRun, loudestExcess, readoutLabel, readoutNote, readoutValue, runClock,
+  runningShare, signedDb, status, strongestTone,
+} from "./format.js";
 
 const LIVE_REFRESH_MS = 10000;
 const HISTORY_REFRESH_MS = 300000;
@@ -56,15 +60,17 @@ function renderStatus() {
     renderClock();
     const about = currentRun(history, site.source_label, now);
     $("run-tip").textContent = `Counting since ${dateTime(run.start_t)}. ${about ? about.note : ""}`.trim();
-    $("status-detail").textContent = typeof live.excess === "number" && live.excess >= 0.5
-      ? `Right now it's ${signedDb(live.excess)} above the background.`
-      : current.detail;
+    $("status-detail").textContent = current.detail;
   } else {
     clockKey = null;
     $("status-headline").textContent = current.headline;
     $("status-detail").textContent = current.detail;
     document.title = `${current.headline}: ${site.title}`;
   }
+  const above = current.numbers ? liveAbove(live, history && history.chart, now) : null;
+  renderReadout(above, current);
+  // The readout says the same as the running sentence, with more behind it
+  $("status-detail").hidden = Boolean(above) && current.kind === "on" && !live.provisional;
   $("status-time").textContent =
     live && current.kind !== "stale" ? `Updated ${duration(Math.max(0, now - live.received_at))} ago` : "";
   document.body.dataset.state = current.kind;
@@ -72,6 +78,21 @@ function renderStatus() {
     current.kind === "fault" || current.kind === "stale" || current.kind === "none");
   renderTones(current);
   renderListen(current);
+}
+
+// The latest minute set against the background for this time of day
+function renderReadout(above, current) {
+  $("readout").hidden = !above;
+  if (!above) return;
+  $("readout-value").textContent = readoutValue(above.db);
+  $("readout-label").textContent = readoutLabel(above);
+  $("tip-readout").textContent = readoutNote(above, site.source_label);
+  const tone = current.kind === "on" ? strongestTone(live.tones) : null;
+  $("readout-tone").hidden = !tone;
+  if (tone) {
+    $("readout-tone").textContent =
+      `Its strongest tone, at ${tone.hz.toFixed(0)} Hz, stands ${tone.excess.toFixed(1)} dB above the background at that pitch.`;
+  }
 }
 
 // "4 days, 3 hours and 12 minutes", ticking over each minute
@@ -211,6 +232,275 @@ function drawToneChart(tones) {
 function toneText(tone) {
   const above = tone.excess === null ? "level not known" : `${signedDb(tone.excess)} against the background`;
   return `${tone.hz.toFixed(1)} Hz, ${above}${tone.present ? "" : ", not found in this reading"}`;
+}
+
+// The trend: the hum's level over recent days against the background without it
+
+let trendDays = 3;
+let trendKey = null;
+
+function trendSource() {
+  if (hasBackground(history && history.chart)) return { chart: history.chart, earlier: false };
+  const old = history && history.earlier && history.earlier.chart;
+  return hasBackground(old) ? { chart: old, earlier: true } : null;
+}
+
+const siteFormats = new Map();
+function siteTime(seconds, timeZone, options) {
+  const key = `${timeZone}:${JSON.stringify(options)}`;
+  if (!siteFormats.has(key)) siteFormats.set(key, new Intl.DateTimeFormat("en-GB", { ...options, timeZone }));
+  return siteFormats.get(key).format(new Date(seconds * 1000));
+}
+
+function renderTrend() {
+  const source = trendSource();
+  $("trend").hidden = !source;
+  if (!source) return;
+  const { chart } = source;
+  const key = `${$("trend-chart").clientWidth}:${trendDays}:${history.generated_at}`;
+  if (key === trendKey) return;
+  trendKey = key;
+
+  const to = chart.start + chart.l90.length * chart.step;
+  const from = to - trendDays * 86400;
+  const points = chartPoints(chart, from, to);
+  const ended = Date.now() / 1000 - chart.until > 3600;
+  const span = trendDays === 1 ? "24 hours" : `${trendDays} days`;
+  $("trend-heading").textContent = ended ? `${capitalise(span)} to ${dateOnly(chart.until)}` : `The last ${span}`;
+
+  const parts = aboveByPart(points);
+  const figuresLine = $("trend-figures");
+  const strong = (text) => {
+    const node = document.createElement("strong");
+    node.textContent = text;
+    return node;
+  };
+  const said = [];
+  if (parts.day) said.push([strong(signedDb(parts.day.db)), " above the daytime background"]);
+  if (parts.night) said.push([strong(signedDb(parts.night.db)), " above the night-time background"]);
+  if (said.length) {
+    figuresLine.replaceChildren(
+      `While ${site.source_label} was running, it sat on average `,
+      ...said.flatMap((part, index) => (index ? [" and ", ...part] : part)),
+      ".",
+    );
+  } else {
+    figuresLine.textContent = `${capitalise(site.source_label)} wasn't clearly running at any point in this time.`;
+  }
+  $("trend-note").textContent = `${source.earlier ? "These readings come from the earlier microphone, as the current one can't be compared with the background yet. " : ""}${backgroundNote(chart, site.source_label)}`;
+  drawTrend(chart, points, from, to, ended, `${$("trend-heading").textContent}. ${figuresLine.textContent}`);
+}
+
+function drawTrend(chart, points, from, to, ended, summary) {
+  const box = $("trend-chart");
+  const tip = $("trend-tip");
+  tip.hidden = true;
+  const width = Math.max(320, box.clientWidth || 800);
+  const height = Math.round(Math.min(440, Math.max(260, width * 0.3)));
+  const top = 30;
+  const bottom = 30;
+  const step = chart.step;
+
+  const levels = points.flatMap((point) => [point.db, point.background && point.background.db])
+    .filter((value) => typeof value === "number");
+  for (const part of ["day", "night"]) {
+    if (chart.background[part]) levels.push(chart.background[part].db);
+  }
+  const lo = Math.min(...levels) - 3;
+  const hi = Math.max(Math.max(...levels) + 3, lo + 15);
+  const x = (t) => ((t - from) / (to - from)) * width;
+  const y = (db) => top + ((height - top - bottom) * (hi - db)) / (hi - lo);
+
+  const chartSvg = svg("svg", {
+    viewBox: `0 0 ${width} ${height}`, class: "trend-svg", role: "img", tabindex: 0,
+    "aria-label": `${summary} Chart of the hum's level against the background. Use the arrow keys to step through it.`,
+  });
+
+  // Night bands, and the name of each day under its daylight hours
+  const bands = [];
+  for (let t = from; t < to; t += step) {
+    const night = isNight(t, chart);
+    const last = bands.at(-1);
+    if (last && last.night === night) last.end = t + step;
+    else bands.push({ start: t, end: t + step, night });
+  }
+  for (const band of bands) {
+    const left = x(band.start);
+    const room = x(band.end) - left;
+    const middle = left + room / 2;
+    if (band.night) {
+      chartSvg.append(svg("rect", { class: "night-band", x: left, y: 0, width: room, height }));
+      if (room > 44) chartSvg.append(svg("text", { class: "band-text", x: middle, y: 19, "text-anchor": "middle" }, "Night"));
+    } else if (room > 44 && (ended || middle < width - 70)) {
+      const name = siteTime(band.start + (band.end - band.start) / 2, chart.timezone, { weekday: "short" });
+      chartSvg.append(svg("text", { class: "band-text", x: middle, y: height - 10, "text-anchor": "middle" }, name));
+    }
+  }
+  if (!ended) chartSvg.append(svg("text", { class: "band-text now-text", x: width - 10, y: height - 10, "text-anchor": "end" }, "Now"));
+
+  // How far above the background the hum sat while running
+  let run = [];
+  const fills = [];
+  for (const point of [...points, { db: null }]) {
+    if (point.db !== null && point.on === 1 && point.background) {
+      run.push(point);
+      continue;
+    }
+    if (run.length) fills.push(run);
+    run = [];
+  }
+  for (const stretch of fills) {
+    const upper = stretch.map((point) => `${x(point.t)},${y(Math.max(point.db, point.background.db))}`);
+    const lower = [...stretch].reverse().map((point) => `${x(point.t)},${y(point.background.db)}`);
+    chartSvg.append(svg("polygon", { class: "above-fill", points: [...upper, ...lower].join(" ") }));
+  }
+
+  // The background, stepping between its day and night levels
+  let backgroundPath = "";
+  let joined = false;
+  for (const point of points) {
+    if (!point.background) {
+      joined = false;
+      continue;
+    }
+    const level = y(point.background.db);
+    backgroundPath += joined ? `V${level}H${x(point.start + step)}` : `M${x(point.start)},${level}H${x(point.start + step)}`;
+    joined = true;
+  }
+  chartSvg.append(svg("path", { class: "background-line", d: backgroundPath }));
+
+  // The hum's level: lit while running, dim while it isn't
+  const segments = [];
+  let segment = null;
+  points.forEach((point, index) => {
+    if (point.db === null) {
+      segment = null;
+      return;
+    }
+    const kind = point.on === 1 ? "on" : "off";
+    if (!segment || segment.kind !== kind) {
+      const previous = points[index - 1];
+      segment = { kind, coords: previous && previous.db !== null ? [[x(previous.t), y(previous.db)]] : [] };
+      segments.push(segment);
+    }
+    segment.coords.push([x(point.t), y(point.db)]);
+  });
+  for (const { kind, coords } of segments) {
+    const d = coords.map(([px, py], index) => `${index ? "L" : "M"}${px},${py}`).join("") + (coords.length === 1 ? "l0.1,0" : "");
+    chartSvg.append(svg("path", { class: kind === "on" ? "hum-line" : "hum-line-off", d }));
+  }
+
+  // The gap at the latest reading, marked and measured
+  const latest = [...points].reverse().find((point) => point.db !== null);
+  if (latest && latest.on === 1 && latest.background && latest.db - latest.background.db >= 0.5) {
+    const at = x(latest.t) - 6;
+    const high = y(latest.db);
+    const low = y(latest.background.db);
+    chartSvg.append(svg("path", { class: "gap-mark", d: `M${at - 5},${high}H${at}V${low}H${at - 5}` }));
+    chartSvg.append(svg("text", { class: "gap-text", x: at - 10, y: (high + low) / 2 + 6, "text-anchor": "end" },
+      signedDb(latest.db - latest.background.db)));
+  }
+
+  // A scale in place of an axis: how tall 10 dB is
+  const scaleTop = y(lo + 10);
+  const scaleBottom = y(lo);
+  chartSvg.append(svg("path", { class: "scale-mark", d: `M12,${scaleTop}h8M16,${scaleTop}V${scaleBottom}M12,${scaleBottom}h8` }));
+  chartSvg.append(svg("text", { class: "scale-text", x: 24, y: (scaleTop + scaleBottom) / 2 + 4 }, "10 dB"));
+
+  // Pointing at, or stepping through, the chart reads out each block
+  const cursor = svg("line", { class: "trend-cursor", y1: top - 6, y2: height - bottom, visibility: "hidden" });
+  const dot = svg("circle", { class: "trend-dot", r: 5, visibility: "hidden" });
+  chartSvg.append(cursor, dot);
+  let shown = null;
+  const show = (index) => {
+    shown = Math.min(Math.max(index, 0), points.length - 1);
+    const point = points[shown];
+    if (!point) return;
+    const px = x(point.t);
+    const py = point.db === null ? top + 20 : y(point.db);
+    cursor.setAttribute("x1", px);
+    cursor.setAttribute("x2", px);
+    cursor.setAttribute("visibility", "visible");
+    dot.setAttribute("cx", px);
+    dot.setAttribute("cy", py);
+    dot.setAttribute("visibility", point.db === null ? "hidden" : "visible");
+    tip.textContent = trendText(chart, point);
+    tip.hidden = false;
+    const scale = box.getBoundingClientRect().width / width;
+    const room = tip.offsetWidth / 2 + 8;
+    tip.style.left = `${Math.min(Math.max(px * scale, room), box.clientWidth - room)}px`;
+    tip.style.top = `${py * scale}px`;
+  };
+  const hide = () => {
+    shown = null;
+    tip.hidden = true;
+    cursor.setAttribute("visibility", "hidden");
+    dot.setAttribute("visibility", "hidden");
+  };
+  const indexAt = (event) => {
+    const bounds = chartSvg.getBoundingClientRect();
+    const t = from + ((event.clientX - bounds.left) / bounds.width) * (to - from);
+    return Math.floor((t - points[0].start) / step);
+  };
+  if (points.length) {
+    chartSvg.addEventListener("pointermove", (event) => show(indexAt(event)));
+    chartSvg.addEventListener("pointerdown", (event) => show(indexAt(event)));
+    chartSvg.addEventListener("pointerleave", hide);
+    chartSvg.addEventListener("focus", () => show(points.lastIndexOf(latest)));
+    chartSvg.addEventListener("blur", hide);
+    chartSvg.addEventListener("keydown", (event) => {
+      const moves = { ArrowLeft: -1, ArrowRight: 1, PageUp: -4, PageDown: 4 };
+      if (event.key in moves) show((shown ?? points.length - 1) + moves[event.key] * (event.shiftKey ? 4 : 1));
+      else if (event.key === "Home") show(0);
+      else if (event.key === "End") show(points.length - 1);
+      else if (event.key === "Escape") hide();
+      else return;
+      event.preventDefault();
+    });
+  }
+  box.replaceChildren(chartSvg);
+}
+
+function trendText(chart, point) {
+  const when = siteTime(point.start, chart.timezone, { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  if (point.db === null) return `${when}: no readings`;
+  const state = point.on === 1 ? "running" : "not clearly running";
+  if (!point.background) return `${when}: ${state}`;
+  return `${when}: ${state}, ${signedDb(point.db - point.background.db)} against the ${point.background.name} background`;
+}
+
+function wireRange() {
+  const buttons = document.querySelectorAll(".range button");
+  for (const button of buttons) {
+    button.addEventListener("click", () => {
+      trendDays = Number(button.dataset.days);
+      for (const other of buttons) other.setAttribute("aria-pressed", String(other === button));
+      renderTrend();
+    });
+  }
+}
+
+// Sample readings for the demo: a week of the hum over a quieter night, with one stop
+function demoChart(until) {
+  const step = 900;
+  const count = 7 * 96;
+  const end = Math.floor(until / step) * step + step;
+  const chart = {
+    start: end - count * step, step, until, timezone: "Europe/London", day_starts: 7, night_starts: 23, l90: [], on: [],
+    background: { day: { db: -55.5, from: "stops", minutes: 640 }, night: { db: -61.5, from: "stops", minutes: 210 } },
+  };
+  let seed = 11;
+  const noise = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;
+  const add = (a, b) => 10 * Math.log10(10 ** (a / 10) + 10 ** (b / 10));
+  for (let index = 0; index < count; index++) {
+    const background = (isNight(chart.start + index * step, chart) ? -61.5 : -55.5) + noise() * 2;
+    const stopped = index >= count - 200 && index < count - 182;
+    const gap = index >= count - 420 && index < count - 412;
+    const hum = -50.5 + 1.5 * Math.sin(index / 37) + noise();
+    chart.l90.push(gap ? null : Math.round((stopped ? background : add(hum, background)) * 10) / 10);
+    chart.on.push(gap ? null : stopped ? 0 : 1);
+  }
+  return chart;
 }
 
 // The waveform: the real sum of the tones present, slowed right down to be seen
@@ -521,7 +811,8 @@ function renderHistory() {
     $("play-record").hidden = !playable;
   }
   $("record-section").hidden = !record && $("small-print").hidden;
-  // The headline clock depends on the current run
+  renderTrend();
+  // The headline clock and readout depend on the history
   if (live) renderStatus();
 }
 
@@ -559,7 +850,7 @@ async function refreshLive() {
   live = await getJson(path);
   if (demo && live) {
     live.received_at = Date.now() / 1000 - 12;
-    if (demo === "off") Object.assign(live, { state: "off", provisional: true, excess: 0.4, tones: live.tones.map((tone) => ({ ...tone, present: false, excess: 0.5 })) });
+    if (demo === "off") Object.assign(live, { state: "off", provisional: true, excess: 0.4, l90: -59.5, tones: live.tones.map((tone) => ({ ...tone, present: false, excess: 0.5 })) });
     if (demo === "unknown") live.state = "unknown";
     if (demo === "earlier") Object.assign(live, { provisional: true, excess: null, tones: live.tones.map((tone) => ({ ...tone, excess: null })) });
     if (demo === "fault") Object.assign(live, { state: "fault", mic_ok: false });
@@ -581,10 +872,12 @@ async function refreshHistory() {
         if (part && part[key]) part[key] += shift;
       }
     }
+    history.chart = demoChart(now);
   }
   if (history && demo === "earlier") {
-    history.earlier = { ...history, monitoring_stopped: true, last_t: history.generated_at - 1728000, current_run: null };
-    Object.assign(history, { longest_run: null, record: null, typical: null, recent: null });
+    const lastT = history.generated_at - 1728000;
+    history.earlier = { ...history, monitoring_stopped: true, last_t: lastT, current_run: null, chart: demoChart(lastT) };
+    Object.assign(history, { longest_run: null, record: null, typical: null, recent: null, chart: null });
   }
   renderHistory();
 }
@@ -604,6 +897,7 @@ async function main() {
   }
   wireAudio();
   wireTips();
+  wireRange();
   // History first, because the headline depends on whether there is any
   await refreshHistory();
   await refreshLive();
@@ -618,6 +912,7 @@ async function main() {
   }, 1000);
   addEventListener("resize", () => {
     if (live) renderStatus();
+    renderTrend();
   });
 }
 

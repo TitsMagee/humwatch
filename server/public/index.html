@@ -27,8 +27,42 @@
         <span class="tip" id="run-tip" role="tooltip"></span>
       </p>
       <p class="status-detail" id="status-detail">This page needs JavaScript to show live readings.</p>
+      <div class="readout" id="readout" hidden>
+        <p class="readout-value" id="readout-value"></p>
+        <p class="readout-label">
+          <span id="readout-label"></span>
+          <button type="button" class="info" aria-expanded="false" aria-controls="tip-readout" aria-label="About this figure">i</button>
+          <span class="tip" id="tip-readout" role="tooltip"></span>
+        </p>
+        <p class="readout-tone" id="readout-tone" hidden></p>
+      </div>
       <p class="status-time" id="status-time"></p>
     </div>
+
+    <figure class="trend" id="trend" aria-labelledby="trend-heading" hidden>
+      <div class="trend-head">
+        <h2 id="trend-heading">The last 3 days</h2>
+        <div class="range" role="group" aria-label="How much to show">
+          <button type="button" data-days="1" aria-pressed="false">24 hours</button>
+          <button type="button" data-days="3" aria-pressed="true">3 days</button>
+          <button type="button" data-days="7" aria-pressed="false">7 days</button>
+        </div>
+      </div>
+      <ul class="trend-key">
+        <li><span class="key key-hum" aria-hidden="true"></span><span id="key-hum">The hum</span></li>
+        <li><span class="key key-background" aria-hidden="true"></span>Background without it</li>
+        <li><span class="key key-above" aria-hidden="true"></span>Above the background</li>
+        <li><span class="key key-night" aria-hidden="true"></span>Night</li>
+      </ul>
+      <div class="trend-frame">
+        <div class="trend-chart" id="trend-chart"></div>
+        <div class="trend-tip" id="trend-tip" hidden></div>
+      </div>
+      <figcaption>
+        <p class="trend-figures" id="trend-figures"></p>
+        <p class="trend-note" id="trend-note"></p>
+      </figcaption>
+    </figure>
 
     <dl class="stats" id="stats" hidden>
       <div class="stat" id="stat-average">

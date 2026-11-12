@@ -98,7 +98,7 @@ Changing the mic, its position, housing or gain makes old levels incomparable. E
 |---|---|
 | `api/ingest.php` | Checks the signature, stores minutes and events, writes `live.json` |
 | `api/clip.php` | Stores a FLAC clip outside the web root |
-| `cron/rollup.php` | Builds runs and 15-minute blocks, writes `history.json`, deletes old clips |
+| `cron/rollup.php` | Builds runs and 15-minute blocks, writes `history.json` (with the week's chart series and day and night backgrounds), deletes old clips |
 | `review/` | Password-protected page to listen to and label events |
 
 Signatures are HMAC-SHA256 over the timestamp and the body's hash, and requests over 5 minutes old are refused.
@@ -110,6 +110,10 @@ Signatures are HMAC-SHA256 over the timestamp and the body's hash, and requests 
 ## Public pages
 
 `public/index.html` is a static page that reads `data/live.json`, `data/history.json` and `site.json`. It has no cookies, analytics or third-party requests. Add `?demo=on`, `off`, `unknown`, `fault`, `stale` or `none` to preview each state with sample data, which is always bannered.
+
+**The live readout** is the latest minute's hum-band L90 against the background for the time of day. L90 is used because passing sounds hardly move it, and it is the figure the rest of the page uses. The strongest tone's height above the background at its own pitch is given beside it, but it isn't the headline, as a single narrow tone doesn't compare with the band.
+
+**The trend chart** sets the hum-band level in each 15-minute block of the last week, running or not, against the background without the source. It shows 3 days by default. Day is 07:00 to 23:00 and night 23:00 to 07:00, as BS 4142 divides them, by the `timezone` in `config.php`. Each background is the median L90 of minutes logged as OFF in that part of the day, in the current mic period, without wind. Until there are at least 30 such minutes, it falls back to the stopped reference the logger compares each minute with, and the page says which was used. The chart has no numbered axis, only a 10 dB scale bar, because the levels are relative and the gap between the lines is the point.
 
 **Headlines** say only what's known. A fault or a stale reading hides the figures and states that it says nothing about the source.
 

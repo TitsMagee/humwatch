@@ -224,3 +224,108 @@ export function loudestExcess(history, label) {
     note: `The loudest steady 15 minutes logged, with ${label} running throughout, on ${dateTime(record.t)}. Passing sounds don't count.${aboveNote(record.excess)}`,
   };
 }
+
+// Day and night at the site, by its own clock
+
+const hourFormats = new Map();
+
+export function localHour(seconds, timeZone) {
+  if (!hourFormats.has(timeZone)) {
+    hourFormats.set(timeZone, new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone }));
+  }
+  const parts = hourFormats.get(timeZone).formatToParts(new Date(seconds * 1000));
+  return Number(parts.find((part) => part.type === "hour").value) % 24;
+}
+
+export function isNight(seconds, chart) {
+  const hour = localHour(seconds, chart.timezone);
+  return hour >= chart.night_starts || hour < chart.day_starts;
+}
+
+const PART_NAMES = { day: "daytime", night: "night-time" };
+
+// The background that applies at a moment: { db, from, minutes, part, name } or null
+export function backgroundAt(chart, seconds) {
+  if (!chart || !chart.background) return null;
+  const part = isNight(seconds, chart) ? "night" : "day";
+  const level = chart.background[part];
+  return level && typeof level.db === "number" ? { ...level, part, name: PART_NAMES[part] } : null;
+}
+
+export function hasBackground(chart) {
+  return Boolean(chart && chart.background && (chart.background.day || chart.background.night)
+    && chart.l90 && chart.l90.some((db) => db !== null));
+}
+
+// The latest minute against the background for this time of day, or failing that, against
+// the stopped reference the logger already compared it with.
+export function liveAbove(live, chart, now) {
+  if (!live) return null;
+  const background = typeof live.l90 === "number" ? backgroundAt(chart, now) : null;
+  if (background) return { db: live.l90 - background.db, background };
+  if (typeof live.excess === "number") return { db: live.excess, background: null };
+  return null;
+}
+
+export function readoutValue(db) {
+  return db >= 0.5 ? signedDb(db) : "About 0 dB";
+}
+
+export function readoutLabel(above) {
+  const which = above.background ? `the ${above.background.name} background` : "the background";
+  return above.db >= 0.5 ? `above ${which}, right now` : `against ${which}, right now`;
+}
+
+function backgroundSource(background, label) {
+  if (background.from === "stops") {
+    return `the typical ${background.name} level while ${label} was stopped, from ${duration(background.minutes * 60)} of readings`;
+  }
+  return `the reference level taken while ${label} was stopped`;
+}
+
+export function readoutNote(above, label) {
+  const against = above.background ? backgroundSource(above.background, label) : `the reference level taken while ${label} was stopped`;
+  return `The hum band's L90 in the latest minute: the level it stays above 90% of the time, so passing sounds hardly count. ` +
+    `It's compared with ${against}.${aboveNote(above.db)} Unweighted, so not dB(A).`;
+}
+
+export function strongestTone(tones) {
+  const measured = (tones || []).filter((tone) => tone.present && typeof tone.excess === "number");
+  return measured.length ? measured.reduce((best, tone) => (tone.excess > best.excess ? tone : best)) : null;
+}
+
+// Each 15 minute block between two moments, with the background that applied to it
+export function chartPoints(chart, from, to) {
+  const points = [];
+  chart.l90.forEach((db, index) => {
+    const start = chart.start + index * chart.step;
+    if (start < from || start >= to) return;
+    points.push({ t: start + chart.step / 2, start, db, on: chart.on[index], background: backgroundAt(chart, start) });
+  });
+  return points;
+}
+
+// How far running blocks sat above the background, on average, by day and by night
+export function aboveByPart(points) {
+  const sums = { day: [0, 0], night: [0, 0] };
+  for (const point of points) {
+    if (point.db === null || point.on !== 1 || !point.background) continue;
+    const sum = sums[point.background.part];
+    sum[0] += point.db - point.background.db;
+    sum[1] += 1;
+  }
+  const mean = ([total, count]) => (count ? { db: total / count, blocks: count } : null);
+  return { day: mean(sums.day), night: mean(sums.night) };
+}
+
+export function backgroundNote(chart, label) {
+  const { day, night } = chart.background;
+  const notes = day && night && day.from === "reference" && night.from === "reference"
+    ? [`Day and night share one background: ${backgroundSource(day, label)}, until enough stops are logged to tell them apart.`]
+    : ["day", "night"].map((part) => {
+    const level = chart.background[part];
+    if (!level) return `There's no ${PART_NAMES[part]} background yet.`;
+    return `The ${PART_NAMES[part]} background is ${backgroundSource({ ...level, name: PART_NAMES[part] }, label)}.`;
+  });
+  return `${notes.join(" ")} Day is 07:00 to 23:00. Levels are the hum band's L90, unweighted, in 15 minute blocks.`;
+}

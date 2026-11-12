@@ -4,7 +4,10 @@ import { test } from "node:test";
 
 import { beatPairs, envelope, wobbleSentence } from "../public/assets/wobble.js";
 import { humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "../public/assets/audio.js";
-import { currentRun, duration, figures, longestRun, runningShare, signedDb, status } from "../public/assets/format.js";
+import {
+  aboveByPart, backgroundAt, backgroundNote, chartPoints, currentRun, duration, figures, hasBackground, isNight, liveAbove,
+  longestRun, readoutLabel, readoutValue, runningShare, signedDb, status, strongestTone,
+} from "../public/assets/format.js";
 
 const NOW = 1800000000;
 const reading = (extra) => ({ received_at: NOW - 10, state: "on", mic_ok: true, excess: 7.5, ...extra });
@@ -247,4 +250,103 @@ test("average excess prefers the mean, falls back to the usual level", async () 
   assert.equal(averageExcess({ recent }), null);
   assert.equal(energyTimes(10), "10");
   assert.equal(energyTimes(6), "4");
+});
+
+// 2027-01-15 00:00 UTC, when London is on UTC
+const MIDNIGHT = 1799971200;
+const chart = (extra) => ({
+  start: MIDNIGHT, step: 900, until: MIDNIGHT + 86400, timezone: "Europe/London", day_starts: 7, night_starts: 23,
+  l90: [], on: [], background: { day: { db: -55, from: "stops", minutes: 600 }, night: { db: -61, from: "stops", minutes: 120 } },
+  ...extra,
+});
+
+test("night runs from 23:00 to 07:00 by the site's clock", () => {
+  assert.equal(isNight(MIDNIGHT + 3600, chart()), true);
+  assert.equal(isNight(MIDNIGHT + 6.99 * 3600, chart()), true);
+  assert.equal(isNight(MIDNIGHT + 7 * 3600, chart()), false);
+  assert.equal(isNight(MIDNIGHT + 23 * 3600, chart()), true);
+  // 22:30 UTC is 23:30 in Berlin
+  assert.equal(isNight(MIDNIGHT + 22.5 * 3600, chart({ timezone: "Europe/Berlin" })), true);
+  assert.equal(isNight(MIDNIGHT + 22.5 * 3600, chart()), false);
+});
+
+test("the background follows the time of day", () => {
+  assert.equal(backgroundAt(chart(), MIDNIGHT + 3600).db, -61);
+  assert.equal(backgroundAt(chart(), MIDNIGHT + 12 * 3600).name, "daytime");
+  assert.equal(backgroundAt(chart({ background: { day: null, night: null } }), MIDNIGHT), null);
+  assert.equal(backgroundAt(null, MIDNIGHT), null);
+});
+
+test("a chart needs readings and a background to be worth drawing", () => {
+  assert.equal(hasBackground(chart({ l90: [null, -50] })), true);
+  assert.equal(hasBackground(chart({ l90: [null, null] })), false);
+  assert.equal(hasBackground(chart({ l90: [-50], background: { day: null, night: null } })), false);
+  assert.equal(hasBackground(null), false);
+});
+
+test("the live figure compares with the background for the time of day", () => {
+  const live = { l90: -50, excess: 8 };
+  const night = liveAbove(live, chart(), MIDNIGHT + 3600);
+  assert.equal(night.db, 11);
+  assert.equal(readoutLabel(night), "above the night-time background, right now");
+  assert.equal(liveAbove(live, chart(), MIDNIGHT + 12 * 3600).db, 5);
+});
+
+test("without a day or night background, the live figure falls back to the logger's excess", () => {
+  const above = liveAbove({ l90: -50, excess: 8 }, null, MIDNIGHT);
+  assert.equal(above.db, 8);
+  assert.equal(readoutLabel(above), "above the background, right now");
+  assert.equal(liveAbove({ l90: -50, excess: null }, null, MIDNIGHT), null);
+  assert.equal(liveAbove(null, chart(), MIDNIGHT), null);
+});
+
+test("a live figure at the background doesn't claim to be above it", () => {
+  assert.equal(readoutValue(0.2), "About 0 dB");
+  assert.equal(readoutValue(-3), "About 0 dB");
+  assert.equal(readoutValue(6.04), "+6.0 dB");
+  assert.match(readoutLabel({ db: -1, background: null }), /^against/);
+});
+
+test("the strongest tone is the present one standing furthest above the background", () => {
+  const tones = [
+    { hz: 60, excess: 15, present: true },
+    { hz: 120, excess: 26, present: true },
+    { hz: 211, excess: 30, present: false },
+    { hz: 239, excess: null, present: true },
+  ];
+  assert.equal(strongestTone(tones).hz, 120);
+  assert.equal(strongestTone([{ hz: 60, excess: null, present: true }]), null);
+  assert.equal(strongestTone(undefined), null);
+});
+
+test("chart points cover the asked-for span, each with its background", () => {
+  const data = chart({ l90: [-50, -51, null, -49], on: [1, 1, null, 1] });
+  const points = chartPoints(data, MIDNIGHT + 900, MIDNIGHT + 3600);
+  assert.deepEqual(points.map((point) => point.db), [-51, null, -49]);
+  assert.equal(points[0].t, MIDNIGHT + 900 + 450);
+  assert.equal(points[0].background.part, "night");
+});
+
+test("average above background counts running blocks only, split by day and night", () => {
+  const night = { db: -61, part: "night" };
+  const day = { db: -55, part: "day" };
+  const parts = aboveByPart([
+    { db: -50, on: 1, background: night },
+    { db: -52, on: 1, background: night },
+    { db: -60, on: 0, background: night },
+    { db: null, on: null, background: night },
+    { db: -49, on: 1, background: day },
+  ]);
+  assert.equal(parts.night.db, 10);
+  assert.equal(parts.night.blocks, 2);
+  assert.equal(parts.day.db, 6);
+  assert.equal(aboveByPart([{ db: -50, on: 1, background: null }]).day, null);
+});
+
+test("the background note says where each level came from", () => {
+  assert.match(backgroundNote(chart(), "the mill"), /night-time background is the typical night-time level while the mill was stopped, from 2 hours/);
+  const reference = { db: -58, from: "reference", minutes: 3 };
+  const shared = backgroundNote(chart({ background: { day: reference, night: reference } }), "the mill");
+  assert.match(shared, /^Day and night share one background/);
+  assert.match(backgroundNote(chart({ background: { day: reference, night: null } }), "the mill"), /no night-time background yet/);
 });

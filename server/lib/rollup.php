@@ -7,6 +7,12 @@ const QUARTER_SECONDS = 900;
 const QUARTER_MIN_MINUTES = 12;
 const RECENT_DAYS = 30;
 const MONITORING_STOPPED_SECONDS = 3600;
+const CHART_DAYS = 7;
+const CHART_MIN_MINUTES = 5;
+const BACKGROUND_MIN_MINUTES = 30;
+// Day and night as BS 4142 splits them, in local time
+const DAY_STARTS = 7;
+const NIGHT_STARTS = 23;
 
 function meta_get(PDO $db, string $key, string $default = ''): string
 {
@@ -137,21 +143,108 @@ function update_quarters(PDO $db, int $now): void
     $db->commit();
 }
 
+function site_zone(string $name): DateTimeZone
+{
+    try {
+        return new DateTimeZone($name);
+    } catch (Exception $error) {
+        return new DateTimeZone('UTC');
+    }
+}
+
+function is_night(int $t, DateTimeZone $zone): bool
+{
+    $hour = (int) (new DateTimeImmutable('@' . $t))->setTimezone($zone)->format('G');
+    return $hour >= NIGHT_STARTS || $hour < DAY_STARTS;
+}
+
+// The typical day and night levels with the source stopped: from logged stops where there
+// are enough of them, otherwise the stopped reference the logger compares every minute with.
+function backgrounds(PDO $db, string $period, DateTimeZone $zone): array
+{
+    $query = $db->prepare(
+        "SELECT t, l90 FROM minutes WHERE mic_period = ? AND state = 'off' AND l90 IS NOT NULL AND (wind IS NULL OR wind = 0)"
+    );
+    $query->execute([$period]);
+    $levels = ['day' => [], 'night' => []];
+    foreach ($query->fetchAll() as $minute) {
+        $levels[is_night((int) $minute['t'], $zone) ? 'night' : 'day'][] = (float) $minute['l90'];
+    }
+    $reference = $db->prepare(
+        'SELECT l90 - excess FROM minutes WHERE mic_period = ? AND excess IS NOT NULL AND l90 IS NOT NULL ORDER BY t DESC LIMIT 1'
+    );
+    $reference->execute([$period]);
+    $stopped = $reference->fetchColumn();
+
+    $result = [];
+    foreach ($levels as $part => $values) {
+        if (count($values) >= BACKGROUND_MIN_MINUTES) {
+            $result[$part] = ['db' => round(median_of($values), 1), 'from' => 'stops', 'minutes' => count($values)];
+        } elseif ($stopped !== false && $stopped !== null) {
+            $result[$part] = ['db' => round((float) $stopped, 1), 'from' => 'reference', 'minutes' => count($values)];
+        } else {
+            $result[$part] = null;
+        }
+    }
+    return $result;
+}
+
+// The hum-band level in each 15 minute block of the last week, running or not, so the page
+// can set it against the background. A block needs a few good minutes to count.
+function chart_series(PDO $db, array $current, DateTimeZone $zone): array
+{
+    $end = ((int) floor((int) $current['last_t'] / QUARTER_SECONDS) + 1) * QUARTER_SECONDS;
+    $first = (int) floor((int) $current['first_t'] / QUARTER_SECONDS) * QUARTER_SECONDS;
+    $start = max($end - CHART_DAYS * 86400, $first);
+    $count = intdiv($end - $start, QUARTER_SECONDS);
+
+    $query = $db->prepare(
+        "SELECT t, state, l90 FROM minutes WHERE mic_period = ? AND t >= ? AND t < ? AND state <> 'fault' AND l90 IS NOT NULL"
+    );
+    $query->execute([$current['id'], $start, $end]);
+    $blocks = [];
+    foreach ($query->fetchAll() as $minute) {
+        $blocks[intdiv((int) $minute['t'] - $start, QUARTER_SECONDS)][] = $minute;
+    }
+    $levels = array_fill(0, $count, null);
+    $on = array_fill(0, $count, null);
+    foreach ($blocks as $index => $rows) {
+        if (count($rows) < CHART_MIN_MINUTES) {
+            continue;
+        }
+        $levels[$index] = round(median_of(array_map(fn($row) => (float) $row['l90'], $rows)), 1);
+        $running = count(array_filter($rows, fn($row) => $row['state'] === 'on'));
+        $on[$index] = 2 * $running >= count($rows) ? 1 : 0;
+    }
+    return [
+        'start' => $start,
+        'step' => QUARTER_SECONDS,
+        'until' => (int) $current['last_t'],
+        'timezone' => $zone->getName(),
+        'day_starts' => DAY_STARTS,
+        'night_starts' => NIGHT_STARTS,
+        'l90' => $levels,
+        'on' => $on,
+        'background' => backgrounds($db, $current['id'], $zone),
+    ];
+}
+
 // Public summary for the current mic period only: levels from other periods don't compare.
-function build_history(PDO $db, int $now): array
+function build_history(PDO $db, int $now, string $timezone = 'UTC'): array
 {
     $current = $db->query('SELECT id, first_t, last_t, calibrated FROM mic_periods ORDER BY last_t DESC LIMIT 1')->fetch();
     if ($current === false) {
-        return ['generated_at' => $now, 'current_run' => null, 'longest_run' => null, 'record' => null, 'recent' => null];
+        return ['generated_at' => $now, 'current_run' => null, 'longest_run' => null, 'record' => null, 'recent' => null, 'chart' => null];
     }
-    $history = period_summary($db, $current, $now);
-    $history['earlier'] = earlier_summary($db, $current, $now);
+    $zone = site_zone($timezone);
+    $history = period_summary($db, $current, $now, $zone);
+    $history['earlier'] = earlier_summary($db, $current, $now, $zone);
     return $history;
 }
 
 // Until the current mic has a stopped level to compare with, it can't produce a loudest
 // or typical reading, so the page keeps showing the previous mic's figures, labelled.
-function earlier_summary(PDO $db, array $current, int $now): ?array
+function earlier_summary(PDO $db, array $current, int $now, DateTimeZone $zone): ?array
 {
     $measured = $db->prepare('SELECT 1 FROM minutes WHERE mic_period = ? AND excess IS NOT NULL LIMIT 1');
     $measured->execute([$current['id']]);
@@ -163,10 +256,10 @@ function earlier_summary(PDO $db, array $current, int $now): ?array
     );
     $previous->execute([$current['id'], $current['last_t']]);
     $row = $previous->fetch();
-    return $row === false ? null : period_summary($db, $row, $now);
+    return $row === false ? null : period_summary($db, $row, $now, $zone);
 }
 
-function period_summary(PDO $db, array $current, int $now): array
+function period_summary(PDO $db, array $current, int $now, DateTimeZone $zone): array
 {
     $period = $current['id'];
     $lastT = (int) $current['last_t'];
@@ -264,6 +357,7 @@ function period_summary(PDO $db, array $current, int $now): array
             'minutes_off' => (int) ($byState['off'] ?? 0),
             'minutes_unknown' => (int) ($byState['unknown'] ?? 0) + (int) ($byState['fault'] ?? 0),
         ],
+        'chart' => chart_series($db, $current, $zone),
     ];
 }
 
@@ -337,7 +431,7 @@ function run_rollup(PDO $db, array $config, int $now): array
 {
     update_runs($db, $config);
     update_quarters($db, $now);
-    $history = build_history($db, $now);
+    $history = build_history($db, $now, (string) ($config['timezone'] ?? date_default_timezone_get()));
     write_public_json($config['public_data_dir'], 'history.json', $history);
     delete_old_clips($db, $config, $now);
     $db->prepare('DELETE FROM login_attempts WHERE t < ?')->execute([$now - 86400]);

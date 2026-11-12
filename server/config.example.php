@@ -18,6 +18,9 @@ return [
     // Where live.json and history.json go, inside the web root.
     'public_data_dir' => __DIR__ . '/public/data',
 
+    // Local time zone, used to tell day (07:00-23:00) from night on the page's chart.
+    'timezone' => 'Europe/London',
+
     // Short gaps (a Pi restart, a dropped upload) don't count as interruptions.
     'max_gap_minutes' => 5,
 

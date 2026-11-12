@@ -136,6 +136,12 @@ check('longest run found', $history['longest_run']['start_t'] === $start && $his
 check('record is the loudest all-on block', $history['record'] !== null && $history['record']['l90'] === 45.0 && $history['record']['tones'] !== []);
 check('on-percent counts known minutes', $history['recent']['minutes_off'] === 20 && $history['recent']['minutes_on'] === 57);
 check('average excess counts running minutes only', $history['recent']['mean_excess'] === 6.0);
+$chart = $history['chart'];
+check('chart starts at the first block and steps by 15 minutes', $chart['start'] === $start && $chart['step'] === 900);
+check('chart block holds its median level and state', $chart['l90'][0] === 40.0 && $chart['on'][0] === 1);
+check('chart shows stopped blocks too', $chart['l90'][3] === 34.0 && $chart['on'][3] === 0);
+check('chart leaves gaps empty', $chart['l90'][4] === null && $chart['on'][4] === null);
+check('too few stopped minutes fall back to the reference', $chart['background']['day']['from'] === 'reference');
 
 // Rollup again changes nothing, and a later backlog is picked up
 run_rollup($db, $config, $later + 300);
@@ -185,6 +191,24 @@ for ($i = 0; $i < 20; $i++) {
 send($db, $config, ['minutes' => $rows], $later + 5300);
 $typical = typical_reading($db, 'mic-3', 0, $later + 6000);
 check('typical reading is near the usual level', $typical !== null && abs($typical['excess'] - $typical['usual_excess']) <= 0.5 && $typical['tones'] !== []);
+
+// Day and night backgrounds
+$utc = new DateTimeZone('UTC');
+$midnight = $start - $start % 86400;
+check('night runs from 23:00 to 07:00', is_night($midnight + 3600, $utc) && is_night($midnight + 23 * 3600, $utc) && !is_night($midnight + 7 * 3600, $utc));
+check('day and night follow the local clock', is_night($midnight + 22 * 3600 + 1800, new DateTimeZone('Europe/Berlin')));
+$rows = [minute_row($midnight + 12 * 3600 - 60, 'on', ['mic_period' => 'mic-bg', 'l90' => 44.0, 'excess' => 6.0])];
+for ($i = 0; $i < 40; $i++) {
+    $rows[] = minute_row($midnight + 3600 + $i * 60, 'off', ['mic_period' => 'mic-bg', 'l90' => 30.0, 'excess' => null]);
+}
+for ($i = 0; $i < 10; $i++) {
+    $rows[] = minute_row($midnight + 12 * 3600 + $i * 60, 'off', ['mic_period' => 'mic-bg', 'l90' => 36.0, 'excess' => null]);
+}
+send($db, $config, ['minutes' => $rows], $later + 6000);
+$backgrounds = backgrounds($db, 'mic-bg', $utc);
+check('night background comes from logged stops', $backgrounds['night'] === ['db' => 30.0, 'from' => 'stops', 'minutes' => 40]);
+check('day background falls back to the stopped reference', $backgrounds['day']['db'] === 38.0 && $backgrounds['day']['from'] === 'reference');
+check('no background without stops or a reference', backgrounds($db, 'mic-none', $utc) === ['day' => null, 'night' => null]);
 
 // Clips
 $flac ='fLaC' . str_repeat('x', 100);

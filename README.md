@@ -43,7 +43,7 @@ venv/bin/humwatch run
 2. Copy everything in `server/` except `public/` to a private folder called `humwatch` in your home directory, outside the web root.
 3. Copy `server/public/` into your web root (`public_html` on cPanel).
 4. Copy `site.example.json` to `site.json` in your web root and fill it in.
-5. Copy `config.example.php` to `config.php` in the private folder and fill it in. Set `public_data_dir` to the `data` folder in your web root.
+5. Copy `config.example.php` to `config.php` in the private folder and fill it in. Set `public_data_dir` to the `data` folder in your web root, and `timezone` to the site's time zone, which decides day and night on the chart.
 6. Add a cron job every 5 minutes: `php /home/ACCOUNT/humwatch/cron/rollup.php`
 
 To preview the page without any data, add `?demo=on` to its address. Replace `on` with `off`, `unknown`, `fault`, `stale` or `none` to see the other states.

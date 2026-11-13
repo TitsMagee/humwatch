@@ -8,6 +8,8 @@
   "level": -49.5,
   "l90": -49.8,
   "excess": 8.2,
+  "hiss": { "pulsing": true, "hz": 4.9, "db": 13.0, "level": -62.5 },
+  "band_hz": [30, 450],
   "tones": [
     { "low": 40, "high": 42, "hz": 41.0, "db": -68.0, "excess": 6.0, "present": false },
     { "low": 58, "high": 62, "hz": 60.5, "db": -61.0, "excess": 15.0, "present": true },

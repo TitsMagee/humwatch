@@ -28,10 +28,19 @@ Per minute, the logger keeps:
 | Hum-band L90, L50, Leq, Lmax | L90 ignores passing sounds, so it best reflects the hum |
 | Wide-band L90 and Leq | Sounds outside the hum |
 | Sub-band L50 | Experimental wind flag |
+| Hiss-band L50, and the pulse in its loudness: rate and height | A rhythmic hiss, such as a sieve, that no tone shows |
 | Each tone group's peak, excess and frequency | Fingerprint |
 | Median spectrum (kept only on the Pi) | Learning and re-analysis |
 
 Figures are unweighted. A-weighting would discount the low frequencies this project exists to measure.
+
+The hum band defaults to 30-450 Hz, wide enough for the tones up to about 450 Hz found at the development site. It was 30-260 Hz before. A band change makes levels incomparable, so it needs a new mic period and baseline, and a baseline from another band is refused.
+
+### The rhythmic hiss
+
+Some sources add a broadband hiss that swells and fades at a steady rate. At the development site a sifting sound pulses about 4.9 times a second, carried between about 3 and 16 kHz, where each pulse swells the hiss by 15-25%. It has no tone to fingerprint, so its rhythm is measured instead. Each analysis window is filtered to `hiss.band_hz` (3-12 kHz), its envelope taken at 200 Hz, and the envelope's spectrum kept from 1 to 20 Hz, relative to the envelope's mean so the figure doesn't depend on loudness. Per minute, the median of those spectra gives the strongest pulse within `hiss.pulse_hz` (3-8 Hz), placed between bins with a parabola, and its height above the median from 1 to 20 Hz. It counts as pulsing at `pulse_db` (6 dB) or more. On a 29 second phone recording of the mill this read 4.9 Hz at 13 dB, and plain noise reads about 1 dB.
+
+The pulse is logged and published, but it isn't yet part of deciding ON or OFF: it hasn't been checked across a stop, or against other rhythmic sounds such as rain on the housing.
 
 ## Is the source running?
 
@@ -96,7 +105,7 @@ Changing the mic, its position, housing or gain makes old levels incomparable. E
 
 | Part | Job |
 |---|---|
-| `api/ingest.php` | Checks the signature, stores minutes and events, writes `live.json` |
+| `api/ingest.php` | Checks the signature, stores minutes and events, writes `live.json` (with the last 90 minutes' L90 and state) |
 | `api/clip.php` | Stores a FLAC clip outside the web root |
 | `cron/rollup.php` | Builds runs and 15-minute blocks, writes `history.json` (with the week's chart series and day and night backgrounds), deletes old clips |
 | `review/` | Password-protected page to listen to and label events |
@@ -113,9 +122,11 @@ Signatures are HMAC-SHA256 over the timestamp and the body's hash, and requests 
 
 **The live readout** is the latest minute's hum-band L90 against the background for the time of day. L90 is used because passing sounds hardly move it, and it is the figure the rest of the page uses. The strongest tone's height above the background at its own pitch is given beside it, but it isn't the headline, as a single narrow tone doesn't compare with the band.
 
-**The trend chart** sets the hum-band level in each 15-minute block of the last week, running or not, against the background without the source. It shows 3 days by default. Day is 07:00 to 23:00 and night 23:00 to 07:00, as BS 4142 divides them, by the `timezone` in `config.php`. Each background is the median L90 of minutes logged as OFF in that part of the day, in the current mic period, without wind. Until there are at least 30 such minutes, it falls back to the stopped reference the logger compares each minute with, and the page says which was used. The chart has no numbered axis, only bounding lines and a 10 dB scale bar, because the levels are relative and the gap between the lines is the point.
+**The trend chart** sets the hum-band level in each 15-minute block of the last week, running or not, against the background without the source. It shows 3 days by default. Day is 07:00 to 23:00 and night 23:00 to 07:00, as BS 4142 divides them, by the `timezone` in `config.php`. Each background is the median L90 of minutes logged as OFF in that part of the day, in the current mic period, without wind. Until there are at least 30 such minutes, it falls back to the stopped reference the logger compares each minute with, and the page says which was used. The rollup builds the week's blocks, and the page brings the latest ones up to the minute from the recent readings in `live.json`, by the same rule, each time it fetches the live reading. So the chart's right-hand edge is the latest minute, not the last rollup. The chart has no numbered axis, only bounding lines and a 10 dB scale bar, because the levels are relative and the gap between the lines is the point.
 
 **Reference lines** can be switched on, at 5 and 10 dB above the background: BS 4142's benchmarks for adverse and significant adverse impact. They are labelled as a guide, as BS 4142 assesses A-weighted levels with tonal penalties. Everyday sounds such as a library or a motorway are deliberately not shown: their familiar figures are absolute dB(A), and these readings are relative and unweighted, so placing them would be invented. Revisit this only once `spl_offset_db` is measured, and even then with the weighting difference stated.
+
+**The hiss** gets its own line under the readout while it's pulsing, giving the rate. `hiss_label` in `site.json` names it.
 
 **Headlines** say only what's known. A fault or a stale reading hides the figures and states that it says nothing about the source.
 

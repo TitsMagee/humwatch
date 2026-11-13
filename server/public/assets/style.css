@@ -178,7 +178,8 @@ h1 {
 
 .readout-label .tip { top: calc(100% + 0.5rem); }
 
-.readout-tone {
+.readout-tone,
+.readout-hiss {
   margin-top: 0.625rem;
   max-width: 40ch;
   color: var(--mist);

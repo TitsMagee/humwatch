@@ -12,6 +12,7 @@ from .detector import FAULT, OFF, ON, Detector, ReferenceLevel
 from .events import ClipRecorder, EventDetector
 from .fingerprint import ToneMeter, load_baseline
 from .minute import MinuteBuilder
+from . import pulse
 from .spectrum import Analyzer
 from .store import Store
 
@@ -45,8 +46,9 @@ def _round(value, digits=1):
 class MinuteProcessor:
     """Turns a finished minute into its stored row. No audio or network here."""
 
-    def __init__(self, cfg, freqs, baseline=None):
+    def __init__(self, cfg, freqs, baseline=None, pulse_freqs=None):
         self.cfg = cfg
+        self.pulse_freqs = pulse_freqs
         self.baseline = baseline
         self.meter = ToneMeter(cfg, freqs, baseline)
         self.detector = Detector(cfg)
@@ -63,9 +65,12 @@ class MinuteProcessor:
         fault = health.check(self.cfg, minute, self.baseline)
         tones = []
         groups = None
+        hiss = None
         if minute.usable and not fault:
             tones = self.meter.measure(minute.spectrum_db)
             groups = sum(tone["present"] for tone in tones)
+            if self.pulse_freqs is not None:
+                hiss = pulse.measure(self.cfg, self.pulse_freqs, minute.pulse_power)
 
         level = minute.l90 if minute.usable and not fault else None
         self.reference.add(minute.t, level)
@@ -95,6 +100,10 @@ class MinuteProcessor:
             "wide_l90": _round(minute.wide_l90),
             "wide_leq": _round(minute.wide_leq),
             "sub_l50": _round(minute.sub_l50),
+            "hiss_l50": _round(minute.hiss_l50) if minute.usable and not fault else None,
+            "pulse_hz": hiss and hiss["hz"],
+            "pulse_db": hiss and hiss["db"],
+            "pulsing": hiss and hiss["present"],
             "excess": _round(excess),
             "wind": wind,
             "groups_present": groups,
@@ -115,12 +124,15 @@ class Service:
 
         self.cfg = cfg
         self.analyzer = Analyzer(cfg)
-        baseline = load_baseline(cfg["paths"]["baseline"], cfg["mic_period"])
+        baseline = load_baseline(cfg["paths"]["baseline"], cfg["mic_period"], self.analyzer.band_freqs)
         if baseline is None:
-            logger.warning("No baseline for mic period %s: state stays unknown", cfg["mic_period"])
+            logger.warning(
+                "No baseline for mic period %s and band %s: state stays unknown",
+                cfg["mic_period"], cfg["analysis"]["band_hz"],
+            )
         self.store = Store(cfg["paths"]["data_dir"])
         self.minutes = MinuteBuilder()
-        self.processor = MinuteProcessor(cfg, self.analyzer.band_freqs, baseline)
+        self.processor = MinuteProcessor(cfg, self.analyzer.band_freqs, baseline, self.analyzer.pulse_freqs)
         self.events = EventDetector(cfg)
         self.clips = ClipRecorder(cfg, self.store)
         self.capture = Capture(cfg)
@@ -170,7 +182,9 @@ class Service:
                 "level": _round(self.last_level),
                 **{key: row[key] for key in (
                     "state", "provisional", "fault", "calibrated", "mic_period", "excess", "l90", "tones",
+                    "hiss_l50", "pulse_hz", "pulse_db", "pulsing",
                 )},
+                "band_hz": self.cfg["analysis"]["band_hz"],
                 "minute_t": row["t"],
             }
         )

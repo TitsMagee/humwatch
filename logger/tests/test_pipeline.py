@@ -114,7 +114,54 @@ def processor_for(cfg):
     analyzer = Analyzer(cfg)
     baseline = Baseline("test", 0, analyzer.band_freqs,
                         np.full(len(analyzer.band_freqs), -90.0), -80.0, -90.0)
-    return analyzer, MinuteProcessor(cfg, analyzer.band_freqs, baseline)
+    return analyzer, MinuteProcessor(cfg, analyzer.band_freqs, baseline, analyzer.pulse_freqs)
+
+
+def hiss_minute(analyzer, pulse_hz=None, depth=0.2, seed=5):
+    """A minute of high hiss over a quiet hum, pulsing at pulse_hz if given."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(96000) / 48000
+    frames = []
+    for i in range(40):
+        swell = 1 + depth * np.sin(2 * np.pi * pulse_hz * (t + i) + 0.3) if pulse_hz else 1
+        hiss = np.diff(rng.normal(0, 0.01, 96001)) * swell  # differenced noise: mostly high frequencies
+        frames.append(analyzer.process(60 + i, sine(67, 0.01) + hiss))
+    return summarise(60, frames)
+
+
+def test_processor_logs_a_pulsing_hiss(cfg):
+    analyzer, processor = processor_for(cfg)
+    row = processor.process(hiss_minute(analyzer, pulse_hz=4.8))
+    assert row["pulsing"] is True
+    assert row["pulse_hz"] == pytest.approx(4.8, abs=0.15)
+    assert row["pulse_db"] >= 10 and row["hiss_l50"] is not None
+    assert json.dumps(row)
+
+
+def test_processor_finds_no_pulse_in_a_steady_hiss(cfg):
+    analyzer, processor = processor_for(cfg)
+    row = processor.process(hiss_minute(analyzer))
+    assert row["pulsing"] is False and row["pulse_db"] < 3
+
+
+def test_a_louder_hiss_with_the_same_rhythm_reads_the_same(cfg):
+    analyzer, processor = processor_for(cfg)
+    quiet = processor.process(hiss_minute(analyzer, pulse_hz=5.5))
+    rng = np.random.default_rng(5)
+    t = np.arange(96000) / 48000
+    loud_frames = []
+    for i in range(40):
+        swell = 1 + 0.2 * np.sin(2 * np.pi * 5.5 * (t + i) + 0.3)
+        loud_frames.append(analyzer.process(60 + i, sine(67, 0.01) + 10 * np.diff(rng.normal(0, 0.01, 96001)) * swell))
+    loud = processor.process(summarise(60, loud_frames))
+    assert loud["pulse_db"] == pytest.approx(quiet["pulse_db"], abs=1.0)
+    assert loud["hiss_l50"] == pytest.approx(quiet["hiss_l50"] + 20, abs=0.5)
+
+
+def test_faulty_minute_has_no_hiss_figures(cfg):
+    _, processor = processor_for(cfg)
+    row = processor.process(Minute(t=60, n_frames=0))
+    assert row["hiss_l50"] is None and row["pulsing"] is None
 
 
 def test_processor_produces_a_row_for_a_running_source(cfg):
@@ -214,7 +261,7 @@ def test_config_rejects_http_and_short_secret(cfg):
 
 
 def test_config_rejects_tone_outside_band(cfg):
-    cfg["fingerprint"]["tone_groups"] = [[300, 310]]
+    cfg["fingerprint"]["tone_groups"] = [[500, 510]]
     with pytest.raises(ConfigError):
         validate(cfg)
 
@@ -421,3 +468,12 @@ def test_minutes_between_accepts_times_read_back_from_spectra(tmp_path):
         )
     times, _ = store.spectra("m")
     assert [row[0] for row in store.minutes_between("m", times[0], times[-1] + 60)] == [60, 120]
+
+
+def test_stored_spectra_keep_only_the_latest_band(tmp_path):
+    store = Store(str(tmp_path))
+    row = {"mic_period": "m", "l90": -50.0, "sub_l50": -60.0, "groups_present": 0, "state": "off"}
+    store.save_minute({**row, "t": 60}, np.full(461, -50.0))
+    store.save_minute({**row, "t": 120}, np.full(841, -50.0))
+    times, matrix = store.spectra("m")
+    assert list(times) == [120] and matrix.shape == (1, 841)

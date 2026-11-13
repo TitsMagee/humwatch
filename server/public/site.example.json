@@ -1,6 +1,7 @@
 {
   "title": "Live hum monitor",
   "source_label": "the source",
+  "hiss_label": "",
   "source_code_url": "https://github.com/TitsMagee/humwatch",
   "history_note": ""
 }

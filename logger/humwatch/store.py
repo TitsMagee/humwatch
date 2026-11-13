@@ -83,6 +83,10 @@ class Store:
         rows = self.db.execute(
             "SELECT t, centi_db FROM spectra WHERE mic_period=? AND t>=? ORDER BY t", (mic_period, since)
         ).fetchall()
+        # A changed band within one period changes the spectrum's length: keep the latest band's
+        if rows:
+            size = len(rows[-1][1])
+            rows = [row for row in rows if len(row[1]) == size]
         if not rows:
             return np.array([]), np.empty((0, 0))
         times = np.array([row[0] for row in rows])

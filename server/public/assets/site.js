@@ -1,16 +1,14 @@
-import { HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
+import { DEFAULT_BAND_HZ, HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "./audio.js";
 import { beatPairs, envelope, wobbleSentence } from "./wobble.js";
 import {
   aboveByPart, averageExcess, backgroundNote, capitalise, chartPoints, currentRun, dateOnly, dateTime, duration, figures,
   hasBackground, isNight, liveAbove, longestRun, loudestExcess, readoutLabel, readoutNote, readoutValue, REFERENCE_LEVELS,
   REFERENCE_NOTE, runClock,
-  runningShare, signedDb, status, strongestTone,
+  runningShare, signedDb, status, strongestTone, withRecent, hissNote,
 } from "./format.js";
 
 const LIVE_REFRESH_MS = 10000;
 const HISTORY_REFRESH_MS = 300000;
-const FREQ_LOW = 30;
-const FREQ_HIGH = 260;
 
 const params = new URLSearchParams(location.search);
 const demo = params.get("demo");
@@ -70,6 +68,8 @@ function renderStatus() {
   }
   const above = current.numbers ? liveAbove(live, history && history.chart, now) : null;
   renderReadout(above, current);
+  renderHiss(current);
+  player.band = liveBand();
   // The readout says the same as the running sentence, with more behind it
   $("status-detail").hidden = Boolean(above) && current.kind === "on" && !live.provisional;
   $("status-time").textContent =
@@ -94,6 +94,18 @@ function renderReadout(above, current) {
     $("readout-tone").textContent =
       `Its strongest tone, at ${tone.hz.toFixed(0)} Hz, stands ${tone.excess.toFixed(1)} dB above the background at that pitch.`;
   }
+}
+
+// The rhythmic hiss is reported on its own, as it can be heard whatever the tones are doing
+function renderHiss(current) {
+  const note = current.numbers ? hissNote(live && live.hiss, site.hiss_label) : null;
+  $("readout-hiss").hidden = !note;
+  if (note) $("readout-hiss").textContent = note;
+}
+
+function liveBand() {
+  const band = live && live.band_hz;
+  return Array.isArray(band) && band.length === 2 ? band : DEFAULT_BAND_HZ;
 }
 
 // "4 days, 3 hours and 12 minutes", ticking over each minute
@@ -179,7 +191,8 @@ function drawToneChart(tones) {
     ? "Each mark is one tone in the hum. The taller it is, the further it stands above the background."
     : "Each mark is one tone in the hum. Heights can't be shown until the monitor has recorded a stop to compare them with.";
   const top = Math.max(10, Math.ceil(Math.max(0, ...known.map((tone) => tone.excess)) / 10) * 10);
-  const x = (hz) => margin.left + (plotWidth * Math.log(hz / FREQ_LOW)) / Math.log(FREQ_HIGH / FREQ_LOW);
+  const [freqLow, freqHigh] = liveBand();
+  const x = (hz) => margin.left + (plotWidth * Math.log(hz / freqLow)) / Math.log(freqHigh / freqLow);
   const y = (db) => margin.top + plotHeight * (1 - Math.max(0, db) / top);
 
   const chart = svg("svg", {
@@ -191,7 +204,7 @@ function drawToneChart(tones) {
     chart.append(svg("line", { class: db === 0 ? "base-line" : "grid-line", x1: margin.left, x2: width - margin.right, y1: y(db), y2: y(db) }));
     chart.append(svg("text", { class: "axis-text", x: margin.left - 8, y: y(db) + 4, "text-anchor": "end" }, db === 0 ? "0 dB" : `+${db}`));
   }
-  for (const hz of [30, 50, 100, 200]) {
+  for (const hz of [30, 50, 100, 200, 400].filter((hz) => hz >= freqLow && hz <= freqHigh)) {
     chart.append(svg("text", { class: "axis-text", x: x(hz), y: height - 12, "text-anchor": "middle" }, `${hz} Hz`));
   }
 
@@ -241,8 +254,11 @@ let trendDays = 3;
 let trendKey = null;
 let showReferences = false;
 
+// The rollup's chart, brought up to the minute by the live file's recent readings
 function trendSource() {
-  if (hasBackground(history && history.chart)) return { chart: history.chart, earlier: false };
+  if (hasBackground(history && history.chart)) {
+    return { chart: withRecent(history.chart, live && live.recent), earlier: false };
+  }
   const old = history && history.earlier && history.earlier.chart;
   return hasBackground(old) ? { chart: old, earlier: true } : null;
 }
@@ -259,14 +275,15 @@ function renderTrend() {
   $("trend").hidden = !source;
   if (!source) return;
   const { chart } = source;
-  const key = `${$("trend-chart").clientWidth}:${trendDays}:${showReferences}:${history.generated_at}`;
+  const key = `${$("trend-chart").clientWidth}:${trendDays}:${showReferences}:${history.generated_at}:${chart.until}`;
   if (key === trendKey) return;
   trendKey = key;
 
-  const to = chart.start + chart.l90.length * chart.step;
+  // A current chart ends at the latest minute, and an ended one at its last block
+  const ended = Date.now() / 1000 - chart.until > 3600;
+  const to = ended ? chart.start + chart.l90.length * chart.step : chart.until;
   const from = to - trendDays * 86400;
   const points = chartPoints(chart, from, to);
-  const ended = Date.now() / 1000 - chart.until > 3600;
   const span = trendDays === 1 ? "24 hours" : `${trendDays} days`;
   $("trend-heading").textContent = ended ? `${capitalise(span)} to ${dateOnly(chart.until)}` : `The last ${span}`;
 
@@ -884,14 +901,28 @@ async function refreshLive() {
   live = await getJson(path);
   if (demo && live) {
     live.received_at = Date.now() / 1000 - 12;
-    if (demo === "off") Object.assign(live, { state: "off", provisional: true, excess: 0.4, l90: -59.5, tones: live.tones.map((tone) => ({ ...tone, present: false, excess: 0.5 })) });
+    if (demo === "off") Object.assign(live, { state: "off", provisional: true, excess: 0.4, l90: -59.5, hiss: { ...live.hiss, pulsing: false, db: 1.2 }, tones: live.tones.map((tone) => ({ ...tone, present: false, excess: 0.5 })) });
     if (demo === "unknown") live.state = "unknown";
     if (demo === "earlier") Object.assign(live, { provisional: true, excess: null, tones: live.tones.map((tone) => ({ ...tone, excess: null })) });
     if (demo === "fault") Object.assign(live, { state: "fault", mic_ok: false });
     if (demo === "stale") live.received_at = Date.now() / 1000 - 7400;
     if (demo === "none") live = null;
+    if (live && history && history.chart) live.recent = demoRecent(history.chart);
   }
   renderStatus();
+  renderTrend();
+}
+
+// Sample recent minutes for the demo: the last hour wandering around the chart's own levels
+function demoRecent(chart) {
+  const now = Math.floor(Date.now() / 60000) * 60;
+  const recent = [];
+  for (let t = now - 3600; t <= now; t += 60) {
+    const index = Math.min(Math.floor((t - chart.start) / chart.step), chart.l90.length - 1);
+    const db = chart.l90[index];
+    if (db !== null) recent.push({ t, l90: Math.round((db + (Math.random() - 0.5) * 1.5) * 10) / 10, on: chart.on[index] });
+  }
+  return recent;
 }
 
 async function refreshHistory() {
@@ -906,7 +937,8 @@ async function refreshHistory() {
         if (part && part[key]) part[key] += shift;
       }
     }
-    history.chart = demoChart(now);
+    // As if the rollup last ran ten minutes ago: the live minutes cover the rest
+    history.chart = demoChart(now - 600);
   }
   if (history && demo === "earlier") {
     const lastT = history.generated_at - 1728000;

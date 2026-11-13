@@ -12,9 +12,19 @@
   },
 
   "analysis": {
-    "band_hz": [30, 260],
+    "band_hz": [30, 450],
+    "_band_hz_comment": "The hum band. Changing it changes every level: start a new mic_period, then build a new baseline.",
     "wide_hz": [500, 5000],
     "sub_hz": [5, 25]
+  },
+
+  "hiss": {
+    "band_hz": [3000, 12000],
+    "_band_hz_comment": "Where a rhythmic hiss is listened for, such as a sieve or screen.",
+    "pulse_hz": [3, 8],
+    "_pulse_hz_comment": "The range of pulse rates to look for, in pulses a second.",
+    "pulse_db": 6.0,
+    "_pulse_db_comment": "How far the pulse must stand above the hiss's other fluctuations to count. Plain hiss reads about 1 dB."
   },
 
   "calibration": {

@@ -42,9 +42,11 @@ venv/bin/humwatch run
 1. Create a database and load `server/schema.sql` into it.
 2. Copy everything in `server/` except `public/` to a private folder called `humwatch` in your home directory, outside the web root.
 3. Copy `server/public/` into your web root (`public_html` on cPanel).
-4. Copy `site.example.json` to `site.json` in your web root and fill it in.
+4. Copy `site.example.json` to `site.json` in your web root and fill it in. `hiss_label` names a rhythmic hiss on the page, such as "the sifting hiss". Left empty, it's called "a rhythmic hiss".
 5. Copy `config.example.php` to `config.php` in the private folder and fill it in. Set `public_data_dir` to the `data` folder in your web root, and `timezone` to the site's time zone, which decides day and night on the chart.
 6. Add a cron job every 5 minutes: `php /home/ACCOUNT/humwatch/cron/rollup.php`
+
+If your database was created before November 2026, run `server/migrations/2026-11-hiss.sql` on it once, before updating the logger, to add the hiss columns.
 
 To preview the page without any data, add `?demo=on` to its address. Replace `on` with `off`, `unknown`, `fault`, `stale` or `none` to see the other states.
 
@@ -69,6 +71,14 @@ The tones and baseline are specific to each site, and you need at least one stop
 You don't have to be there when a stop happens. Spectra are saved every minute for 120 days, so a baseline can be built later. `humwatch --config config.json find-stops --out stops.csv` lists stretches where the tones vanished and the level fell. Treat these as candidates and check them first: at the development site it found every confirmed stop, but also flagged two mornings when the source was still running.
 
 Until there is a stop, `humwatch --config config.json interim-baseline` estimates a stand-in from the frequencies either side of each tone, using at least an hour of readings (a day or more is better). Restart the logger to use it. Readings are then marked provisional, the page says it is going by tones alone, and no level is given above the background. Leave out any tone that might come from something else, such as a heat pump, because this baseline can't rule it out. A baseline from real stops replaces it.
+
+### Changing the hum band
+
+The band's width decides every level, so readings over a different band don't compare, and a baseline only fits the band it was built over. A logger refuses a baseline from another band and stays at unknown until it has one. To change `analysis.band_hz`:
+
+1. Set the new `band_hz` and a new `mic_period` in `config.json`, and restart the logger. The page keeps showing the earlier mic period's figures, labelled, until the new one can be compared with the background.
+2. Build a baseline for the new band, with `interim-baseline` after a day or so, or `baseline --stops` once there's a stop logged on the new band.
+3. Run `learn` and add tone groups for the new frequencies, such as those between 260 and 450 Hz.
 
 ### Adding older readings
 

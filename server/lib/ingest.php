@@ -9,6 +9,9 @@ const CLOCK_SKEW_SECONDS = 300;
 const STATES = ['on', 'off', 'unknown', 'fault'];
 const FAULTS = ['no_audio', 'digital_silence', 'below_floor', 'below_baseline', 'clipping'];
 const EVENT_KINDS = ['wide', 'band'];
+// live.json carries this much of the latest minutes, so the page's chart is current
+// between rollups. It needs to outlast the rollup's interval with room to spare.
+const LIVE_RECENT_SECONDS = 5400;
 
 function signature_valid(string $secret, string $timestamp, string $signature, string $body, int $now): bool
 {
@@ -67,6 +70,7 @@ function store_minute(PDOStatement $insert, array $row, int $now): bool
     }
     $groups = $row['groups_present'] ?? null;
     $wind = $row['wind'] ?? null;
+    $pulsing = $row['pulsing'] ?? null;
     $insert->execute([
         $row['t'],
         $row['mic_period'],
@@ -82,6 +86,10 @@ function store_minute(PDOStatement $insert, array $row, int $now): bool
         number_or_null($row['wide_l90'] ?? null),
         number_or_null($row['wide_leq'] ?? null),
         number_or_null($row['sub_l50'] ?? null),
+        number_or_null($row['hiss_l50'] ?? null),
+        number_or_null($row['pulse_hz'] ?? null),
+        number_or_null($row['pulse_db'] ?? null),
+        is_bool($pulsing) ? ($pulsing ? 1 : 0) : null,
         number_or_null($row['excess'] ?? null),
         $wind === null ? null : ($wind === true ? 1 : 0),
         is_int($groups) && $groups >= 0 && $groups <= 255 ? $groups : null,
@@ -139,13 +147,15 @@ function handle_ingest(PDO $db, array $config, string $body, string $timestamp, 
     try {
         $insertMinute = $db->prepare(
             'INSERT INTO minutes (t, mic_period, n_frames, state, provisional, fault, calibrated,
-                l90, l50, leq, lmax, wide_l90, wide_leq, sub_l50, excess, wind, groups_present, tones)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                l90, l50, leq, lmax, wide_l90, wide_leq, sub_l50, hiss_l50, pulse_hz, pulse_db, pulsing,
+                excess, wind, groups_present, tones)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
              ON DUPLICATE KEY UPDATE mic_period=VALUES(mic_period), n_frames=VALUES(n_frames),
                 state=VALUES(state), provisional=VALUES(provisional), fault=VALUES(fault),
                 calibrated=VALUES(calibrated), l90=VALUES(l90), l50=VALUES(l50), leq=VALUES(leq),
                 lmax=VALUES(lmax), wide_l90=VALUES(wide_l90), wide_leq=VALUES(wide_leq),
-                sub_l50=VALUES(sub_l50), excess=VALUES(excess), wind=VALUES(wind),
+                sub_l50=VALUES(sub_l50), hiss_l50=VALUES(hiss_l50), pulse_hz=VALUES(pulse_hz),
+                pulse_db=VALUES(pulse_db), pulsing=VALUES(pulsing), excess=VALUES(excess), wind=VALUES(wind),
                 groups_present=VALUES(groups_present), tones=VALUES(tones)'
         );
         $insertEvent = $db->prepare(
@@ -180,7 +190,9 @@ function handle_ingest(PDO $db, array $config, string $body, string $timestamp, 
 
     $live = $data['live'] ?? null;
     if (is_array($live) && valid_time($live['t'] ?? null, $now)) {
-        write_public_json($config['public_data_dir'], 'live.json', clean_live($live, $now));
+        $public = clean_live($live, $now);
+        $public['recent'] = recent_minutes($db, (int) $live['t']);
+        write_public_json($config['public_data_dir'], 'live.json', $public);
     }
     return [200, ['ok' => true, 'minutes' => count($minutes) - $rejected, 'rejected' => $rejected]];
 }
@@ -201,7 +213,50 @@ function clean_live(array $live, int $now): array
         'l90' => number_or_null($live['l90'] ?? null),
         'excess' => number_or_null($live['excess'] ?? null),
         'tones' => clean_tones($live['tones'] ?? []),
+        'hiss' => clean_hiss($live),
+        'band_hz' => clean_band($live['band_hz'] ?? null),
     ];
+}
+
+// The rhythmic hiss, when the logger measured one
+function clean_hiss(array $live): ?array
+{
+    $hz = number_or_null($live['pulse_hz'] ?? null);
+    $db = number_or_null($live['pulse_db'] ?? null);
+    if ($hz === null || $db === null || !is_bool($live['pulsing'] ?? null)) {
+        return null;
+    }
+    return ['pulsing' => $live['pulsing'], 'hz' => $hz, 'db' => $db, 'level' => number_or_null($live['hiss_l50'] ?? null)];
+}
+
+function clean_band($band): ?array
+{
+    if (!is_array($band) || count($band) !== 2) {
+        return null;
+    }
+    [$low, $high] = [number_or_null($band[0] ?? null), number_or_null($band[1] ?? null)];
+    return $low !== null && $high !== null && 0 < $low && $low < $high && $high <= 24000 ? [$low, $high] : null;
+}
+
+// The latest mic period's minutes up to $until, without faults: the same minutes the chart uses
+function recent_minutes(PDO $db, int $until): array
+{
+    $latest = $db->prepare('SELECT mic_period FROM minutes WHERE t <= ? ORDER BY t DESC LIMIT 1');
+    $latest->execute([$until]);
+    $period = $latest->fetchColumn();
+    if ($period === false) {
+        return [];
+    }
+    $query = $db->prepare(
+        "SELECT t, state, l90 FROM minutes
+         WHERE mic_period = ? AND t > ? AND t <= ? AND state <> 'fault' AND l90 IS NOT NULL ORDER BY t"
+    );
+    $query->execute([$period, $until - LIVE_RECENT_SECONDS, $until]);
+    return array_map(fn($row) => [
+        't' => (int) $row['t'],
+        'l90' => round((float) $row['l90'], 1),
+        'on' => $row['state'] === 'on' ? 1 : 0,
+    ], $query->fetchAll());
 }
 
 function handle_clip(PDO $db, array $config, string $body, string $timestamp, string $signature, string $eventId, int $now): array

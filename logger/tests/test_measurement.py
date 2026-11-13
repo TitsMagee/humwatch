@@ -120,6 +120,14 @@ def test_baseline_from_another_mic_period_is_refused(cfg, tmp_path):
     assert load_baseline(path, "new-mic") is None
 
 
+def test_baseline_from_another_band_is_refused(cfg, tmp_path):
+    path = tmp_path / "baseline.json"
+    save_baseline(path, baseline_for(Analyzer(cfg)))
+    assert load_baseline(path, "test", Analyzer(cfg).band_freqs) is not None
+    cfg["analysis"]["band_hz"] = [30, 260]
+    assert load_baseline(path, "test", Analyzer(cfg).band_freqs) is None
+
+
 def test_minutes_close_and_outage_gives_empty_minutes(cfg):
     analyzer = Analyzer(cfg)
     builder = MinuteBuilder()

@@ -5,8 +5,8 @@
 const PEAK = 0.6;
 const FADE_SECONDS = 1.2;
 const NOISE_SECONDS = 8;
-const BAND_LOW_HZ = 30;
-const BAND_HIGH_HZ = 260;
+// The logger's hum band, unless the live reading says otherwise
+export const DEFAULT_BAND_HZ = [30, 260];
 const BIRD_GAIN = 0.05;
 
 // Tones that were actually present, as amplitudes. Levels use the same scale as the
@@ -47,7 +47,7 @@ export function humOnlyLevels(tones) {
   return mixLevels(tones, null);
 }
 
-function renderBandNoise(context) {
+function renderBandNoise(context, [lowHz, highHz]) {
   const rate = context.sampleRate;
   const length = NOISE_SECONDS * rate;
   const offline = new OfflineAudioContext(1, length, rate);
@@ -58,10 +58,10 @@ function renderBandNoise(context) {
   source.buffer = white;
   const high = offline.createBiquadFilter();
   high.type = "highpass";
-  high.frequency.value = BAND_LOW_HZ;
+  high.frequency.value = lowHz;
   const low = offline.createBiquadFilter();
   low.type = "lowpass";
-  low.frequency.value = BAND_HIGH_HZ;
+  low.frequency.value = highHz;
   source.connect(high).connect(low).connect(offline.destination);
   source.start();
   return offline.startRendering().then((rendered) => {
@@ -115,6 +115,8 @@ export class HumPlayer {
     this.birdTimer = null;
     this.volume = 0.35;
     this.noiseBuffer = null;
+    this.noiseBand = null;
+    this.band = DEFAULT_BAND_HZ;
   }
 
   get playing() {
@@ -129,7 +131,11 @@ export class HumPlayer {
       this.master.connect(this.context.destination);
     }
     if (this.context.state === "suspended") await this.context.resume();
-    if (!this.noiseBuffer) this.noiseBuffer = await renderBandNoise(this.context);
+    // The background noise spans the band its level was measured over
+    if (!this.noiseBuffer || String(this.noiseBand) !== String(this.band)) {
+      this.noiseBand = this.band;
+      this.noiseBuffer = await renderBandNoise(this.context, this.band);
+    }
   }
 
   // levels from mixLevels or humOnlyLevels. humOn starts with the tones audible or not.

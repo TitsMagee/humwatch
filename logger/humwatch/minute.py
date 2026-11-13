@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .fingerprint import median_spectrum_db
+from .pulse import median_envelope
 from .spectrum import to_db
 
 MIN_FRAMES = 30
@@ -21,9 +22,11 @@ class Minute:
     wide_l90: float | None = None
     wide_leq: float | None = None
     sub_l50: float | None = None
+    hiss_l50: float | None = None
     silent_fraction: float = 0.0
     clip_fraction: float = 0.0
     spectrum_db: np.ndarray | None = field(default=None, repr=False)
+    pulse_power: np.ndarray | None = field(default=None, repr=False)
 
     @property
     def usable(self):
@@ -39,6 +42,8 @@ def summarise(t, frames):
         return Minute(t=t, n_frames=0)
     band = [f.band_db for f in frames]
     wide = [f.wide_db for f in frames]
+    hiss = [f.hiss_db for f in frames if f.hiss_db is not None]
+    pulses = [f.pulse_power for f in frames if f.pulse_power is not None]
     return Minute(
         t=t,
         n_frames=len(frames),
@@ -52,6 +57,8 @@ def summarise(t, frames):
         silent_fraction=float(np.mean([f.digital_silence for f in frames])),
         clip_fraction=float(np.mean([f.clip_fraction for f in frames])),
         spectrum_db=median_spectrum_db([f.band_power for f in frames]),
+        hiss_l50=float(np.percentile(hiss, 50)) if hiss else None,
+        pulse_power=median_envelope(pulses) if pulses else None,
     )
 
 

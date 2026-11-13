@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { beatPairs, envelope, wobbleSentence } from "../public/assets/wobble.js";
 import { humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "../public/assets/audio.js";
 import {
-  aboveByPart, backgroundAt, backgroundNote, chartPoints, currentRun, duration, figures, hasBackground, isNight, liveAbove,
+  aboveByPart, backgroundAt, backgroundNote, chartPoints, currentRun, duration, figures, hasBackground, isNight, liveAbove, withRecent, hissNote,
   longestRun, readoutLabel, readoutValue, REFERENCE_LEVELS, runningShare, signedDb, status, strongestTone,
 } from "../public/assets/format.js";
 
@@ -354,4 +354,41 @@ test("the background note says where each level came from", () => {
 test("reference lines are the BS 4142 benchmarks, highest last, each with a short label", () => {
   assert.deepEqual(REFERENCE_LEVELS.map((level) => level.db), [5, 10]);
   for (const level of REFERENCE_LEVELS) assert.ok(level.short.length < level.label.length);
+});
+
+test("live minutes bring the chart up to date by the rollup's rule", () => {
+  // The rollup has two blocks, to 00:30. Live minutes run 00:16 to 00:47.
+  const data = chart({ l90: [-50, -51], on: [1, 1], until: MIDNIGHT + 1800 - 60 });
+  const recent = [];
+  for (let minute = 16; minute <= 47; minute++) {
+    recent.push({ t: MIDNIGHT + minute * 60, l90: minute < 30 ? -40 : minute < 45 ? -52 + (minute % 3) : -60, on: minute < 45 ? 1 : 0 });
+  }
+  const live = withRecent(data, recent);
+  assert.deepEqual(live.l90, [-50, -51, -51, -60]);
+  assert.deepEqual(live.on, [1, 1, 1, 0]);
+  assert.equal(live.until, MIDNIGHT + 47 * 60);
+  // The chart passed in is left alone
+  assert.deepEqual(data.l90, [-50, -51]);
+  // The block still filling ends the line at the latest minute
+  const points = chartPoints(live, MIDNIGHT, MIDNIGHT + 3600);
+  assert.equal(points.at(-1).t, MIDNIGHT + 47 * 60);
+});
+
+test("live minutes that are older, missing or too few change nothing", () => {
+  const data = chart({ l90: [-50], on: [1], until: MIDNIGHT + 840 });
+  assert.equal(withRecent(data, []), data);
+  assert.equal(withRecent(data, undefined), data);
+  assert.equal(withRecent(null, [{ t: MIDNIGHT, l90: -50, on: 1 }]), null);
+  assert.equal(withRecent(data, [{ t: MIDNIGHT + 600, l90: -40, on: 1 }]), data);
+  // Two minutes of a finished block are too few to stand for it
+  const sparse = withRecent(data, [{ t: MIDNIGHT + 900, l90: -40, on: 1 }, { t: MIDNIGHT + 960, l90: -40, on: 1 }, { t: MIDNIGHT + 1800, l90: -45, on: 1 }]);
+  assert.deepEqual(sparse.l90, [-50, null, -45]);
+});
+
+test("the hiss is mentioned only while it is pulsing", () => {
+  assert.equal(hissNote({ pulsing: true, hz: 4.86, db: 13 }), "A rhythmic hiss is pulsing about 4.9 times a second.");
+  assert.equal(hissNote({ pulsing: true, hz: 5.02, db: 13 }, "the sifting hiss"), "The sifting hiss is pulsing about 5 times a second.");
+  assert.equal(hissNote({ pulsing: false, hz: 7, db: 1 }), null);
+  assert.equal(hissNote(null), null);
+  assert.equal(hissNote({ pulsing: true, hz: null }), null);
 });

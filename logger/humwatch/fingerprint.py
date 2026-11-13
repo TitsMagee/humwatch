@@ -26,10 +26,11 @@ class Baseline:
     interim: bool = False
 
 
-def load_baseline(path, mic_period):
-    """The baseline for this mic period, or None.
+def load_baseline(path, mic_period, freqs=None):
+    """The baseline for this mic period and band, or None.
 
-    A baseline from another period is refused: its levels mean nothing now.
+    A baseline from another period is refused: its levels mean nothing now. So is
+    one captured over a different band, as its spectrum and level don't line up.
     """
     path = Path(path)
     if not path.exists():
@@ -37,6 +38,8 @@ def load_baseline(path, mic_period):
     with open(path, encoding="utf-8") as handle:
         raw = json.load(handle)
     if raw.get("mic_period") != mic_period:
+        return None
+    if freqs is not None and not np.array_equal(np.asarray(raw["freqs"], dtype=float), np.asarray(freqs, dtype=float)):
         return None
     return Baseline(
         mic_period=raw["mic_period"],

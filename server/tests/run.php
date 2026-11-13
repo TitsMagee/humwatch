@@ -105,6 +105,26 @@ send($db, $config, ['live' => ['t' => $now, 'state' => 'on', 'fault' => 'below_f
 $live = json_decode((string) file_get_contents($temp . '/data/live.json'), true);
 check('live file written', $live['state'] === 'on' && $live['level'] === 40.5 && $live['mic_ok'] === false);
 check('live file leaks nothing extra', !isset($live['mic_period']) && !isset($live['secret']) && !isset($live['fault']));
+check('live file without hiss figures says so', $live['hiss'] === null && $live['band_hz'] === null);
+send($db, $config, ['minutes' => [minute_row($now - 180, 'on', ['hiss_l50' => -62.5, 'pulse_hz' => 4.9, 'pulse_db' => 13.0, 'pulsing' => true])],
+    'live' => ['t' => $now, 'state' => 'on', 'tones' => [], 'hiss_l50' => -62.5, 'pulse_hz' => 4.9, 'pulse_db' => 13.0,
+    'pulsing' => true, 'band_hz' => [30, 450]]], $now);
+$live = json_decode((string) file_get_contents($temp . '/data/live.json'), true);
+check('live file carries the hiss and the band', $live['hiss'] === ['pulsing' => true, 'hz' => 4.9, 'db' => 13.0, 'level' => -62.5]
+    && $live['band_hz'] === [30, 450]);
+$stored = $db->query('SELECT hiss_l50, pulse_hz, pulse_db, pulsing FROM minutes WHERE t = ' . ($now - 180))->fetch();
+check('hiss figures stored', abs((float) $stored['pulse_hz'] - 4.9) < 0.01 && (int) $stored['pulsing'] === 1);
+$db->exec('DELETE FROM minutes WHERE t = ' . ($now - 180));
+check('live file carries the recent minutes', $live['recent'] === [
+    ['t' => $now - 120, 'l90' => 40.0, 'on' => 1], ['t' => $now - 60, 'l90' => 40.0, 'on' => 1],
+]);
+send($db, $config, ['minutes' => [
+    minute_row($now - 7200),
+    minute_row($now - 50, 'fault', ['fault' => 'below_floor']),
+    minute_row($now - 100, 'on', ['mic_period' => 'mic-0']),
+], 'live' => ['t' => $now, 'state' => 'on', 'tones' => []]], $now);
+$live = json_decode((string) file_get_contents($temp . '/data/live.json'), true);
+check('recent minutes skip faults, old minutes and other mics', array_column($live['recent'], 't') === [$now - 120, $now - 60]);
 
 // Run logic
 reset_tables($db);

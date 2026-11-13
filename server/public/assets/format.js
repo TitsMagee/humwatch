@@ -300,9 +300,51 @@ export function chartPoints(chart, from, to) {
   chart.l90.forEach((db, index) => {
     const start = chart.start + index * chart.step;
     if (start < from || start >= to) return;
-    points.push({ t: start + chart.step / 2, start, db, on: chart.on[index], background: backgroundAt(chart, start) });
+    // The block still filling is drawn at its latest minute, so the line ends at now
+    const t = Math.min(start + chart.step / 2, chart.until);
+    points.push({ t, start, db, on: chart.on[index], background: backgroundAt(chart, start) });
   });
   return points;
+}
+
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+// Brings the rollup's chart up to the latest minutes from live.json, by the rollup's own
+// rule: each block is the median L90 of its minutes, and running if half of them were.
+// A block the live minutes only partly cover keeps the rollup's figure, and the block
+// still filling is shown from its first minute.
+export function withRecent(chart, recent, minMinutes = 5) {
+  const minutes = Array.isArray(recent) ? recent.filter((minute) => typeof minute.l90 === "number") : [];
+  if (!chart || !minutes.length) return chart;
+  const { start, step } = chart;
+  const latest = minutes.at(-1).t;
+  if (latest <= chart.until) return chart;
+  const blockOf = (t) => Math.floor((t - start) / step);
+  const firstFull = Math.ceil((minutes[0].t - 59 - start) / step);
+  const filling = blockOf(latest);
+  const blocks = new Map();
+  for (const minute of minutes) {
+    const index = blockOf(minute.t);
+    if (index < firstFull) continue;
+    if (!blocks.has(index)) blocks.set(index, []);
+    blocks.get(index).push(minute);
+  }
+  const l90 = [...chart.l90];
+  const on = [...chart.on];
+  while (l90.length <= filling) {
+    l90.push(null);
+    on.push(null);
+  }
+  for (const [index, rows] of blocks) {
+    if (rows.length < (index === filling ? 1 : minMinutes)) continue;
+    l90[index] = Math.round(median(rows.map((row) => row.l90)) * 10) / 10;
+    on[index] = 2 * rows.filter((row) => row.on === 1).length >= rows.length ? 1 : 0;
+  }
+  return { ...chart, l90, on, until: latest };
 }
 
 // How far running blocks sat above the background, on average, by day and by night
@@ -341,3 +383,11 @@ export const REFERENCE_NOTE =
   "and 10 dB above as a sign of significant adverse impact, depending on the context. A 10 dB rise is heard as " +
   "roughly twice as loud. BS 4142 assesses A-weighted levels, with penalties for tones, so on these unweighted " +
   "readings the lines are a guide, not an assessment.";
+
+// The rhythmic hiss, in words, while the logger hears it pulsing
+export function hissNote(hiss, label) {
+  if (!hiss || hiss.pulsing !== true || typeof hiss.hz !== "number") return null;
+  const name = label ? capitalise(label) : "A rhythmic hiss";
+  const rate = hiss.hz.toFixed(1).replace(/\.0$/, "");
+  return `${name} is pulsing about ${rate} times a second.`;
+}

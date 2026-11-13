@@ -6,7 +6,8 @@ from pathlib import Path
 DEFAULTS = {
     "mic_period": "",
     "audio": {"device_name": "", "sample_rate": 48000, "channels": 1},
-    "analysis": {"band_hz": [30, 260], "wide_hz": [500, 5000], "sub_hz": [5, 25]},
+    "analysis": {"band_hz": [30, 450], "wide_hz": [500, 5000], "sub_hz": [5, 25]},
+    "hiss": {"band_hz": [3000, 12000], "pulse_hz": [3, 8], "pulse_db": 6.0},
     "calibration": {"file": "", "spl_offset_db": None},
     "fingerprint": {"tone_groups": [], "excess_db": 8.0, "prominence_db": 6.0},
     "detector": {
@@ -75,8 +76,14 @@ def validate(cfg):
     analysis = cfg["analysis"]
     for name in ("band_hz", "wide_hz", "sub_hz"):
         _check_range(f"analysis.{name}", analysis[name])
-    if analysis["wide_hz"][1] >= cfg["audio"]["sample_rate"] / 2:
-        raise ConfigError("analysis.wide_hz must stay below half the sample rate")
+    hiss = cfg["hiss"]
+    _check_range("hiss.band_hz", hiss["band_hz"])
+    _check_range("hiss.pulse_hz", hiss["pulse_hz"])
+    for name, pair in (("analysis.wide_hz", analysis["wide_hz"]), ("hiss.band_hz", hiss["band_hz"])):
+        if pair[1] >= cfg["audio"]["sample_rate"] / 2:
+            raise ConfigError(f"{name} must stay below half the sample rate")
+    if hiss["pulse_hz"][0] < 1 or hiss["pulse_hz"][1] > 20:
+        raise ConfigError("hiss.pulse_hz must lie between 1 and 20 Hz")
     band = analysis["band_hz"]
     for group in cfg["fingerprint"]["tone_groups"]:
         _check_range("fingerprint.tone_groups entry", group)

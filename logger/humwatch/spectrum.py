@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from . import calibration
+from .pulse import PulseMeter
 
 WINDOW_SECONDS = 2
 EPS = 1e-20
@@ -27,6 +28,8 @@ class Frame:
     sub_db: float
     clip_fraction: float
     digital_silence: bool
+    hiss_db: float | None = None
+    pulse_power: np.ndarray | None = None  # the hiss envelope's spectrum, see pulse.py
 
 
 class Analyzer:
@@ -40,6 +43,9 @@ class Analyzer:
         self._wide = self._slice(freqs, analysis["wide_hz"])
         self._sub = self._slice(freqs, analysis["sub_hz"])
         self.band_freqs = freqs[self._band]
+        self._hiss = self._slice(freqs, cfg["hiss"]["band_hz"])
+        self.pulse = PulseMeter(cfg, self.sample_rate, self.window_length)
+        self.pulse_freqs = self.pulse.freqs
 
         # Sine of amplitude A: |X|^2 peaks at (A * sum(w) / 2)^2, so this scale makes
         # A = 1 read 1.0 in its peak bin. Summing bins also counts the window's spread
@@ -69,4 +75,6 @@ class Analyzer:
             sub_db=float(to_db(power[self._sub].sum() / self._enbw)),
             clip_fraction=float(np.mean(np.abs(samples) >= 0.999)),
             digital_silence=bool(np.all(samples == samples[0])),
+            hiss_db=float(to_db(power[self._hiss].sum() / self._enbw)),
+            pulse_power=self.pulse.envelope_power(samples),
         )

@@ -148,15 +148,20 @@ def build_interim_baseline(mic_period, freqs, times, spectra_db, minutes):
     )
 
 
-def tones_by_prominence(meter, spectra_db):
-    """How many tone groups stand out in each minute, needing no baseline."""
-    needed = meter.prominence_db
+def prominences(meter, spectra_db):
+    """Each tone group's prominence in each minute, as a minutes x groups array (NaN if unknown)."""
     return np.array(
         [
-            sum(tone["prominence"] is not None and tone["prominence"] >= needed for tone in meter.measure(row))
+            [np.nan if tone["prominence"] is None else tone["prominence"] for tone in meter.measure(row)]
             for row in spectra_db
-        ]
-    )
+        ],
+        dtype=float,
+    ).reshape(len(spectra_db), len(meter.groups))
+
+
+def tones_by_prominence(meter, spectra_db):
+    """How many tone groups stand out in each minute, needing no baseline."""
+    return (prominences(meter, spectra_db) >= meter.prominence_db).sum(axis=1)
 
 
 def other_lines(freqs, spectrum_db, groups, prominence_db=6.0):

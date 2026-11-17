@@ -90,6 +90,18 @@ def _clock(t):
     return datetime.fromtimestamp(t).astimezone().strftime("%Y-%m-%dT%H:%M")
 
 
+def _print_tone_summary(tone_groups, shown, counts, max_groups):
+    """Show how often each group stands out, so a tone that never leaves is easy to spot."""
+    if not len(counts):
+        return
+    print(f"Tone groups seen per minute: min {counts.min()}, median {np.median(counts):g}, max {counts.max()}")
+    print(f"Minutes with {max_groups} or fewer (counted as quiet): {int((counts <= max_groups).sum())}")
+    print("Share of minutes each group stands out:")
+    for (low, high), share in zip(tone_groups, shown.mean(axis=0)):
+        print(f"  {low:g}-{high:g} Hz: {share:.0%}")
+    print()
+
+
 def _find_stops(cfg, args):
     store = Store(cfg["paths"]["data_dir"])
     times, spectra = store.spectra(cfg["mic_period"], time.time() - args.days * 86400)
@@ -103,9 +115,28 @@ def _find_stops(cfg, args):
     keep = np.array([int(t) in usable for t in times], dtype=bool)
     times, spectra = times[keep], spectra[keep]
     freqs = Analyzer(cfg).band_freqs
-    groups = learn.tones_by_prominence(ToneMeter(cfg, freqs), spectra)
+    meter = ToneMeter(cfg, freqs)
+    prominence = learn.prominences(meter, spectra)
+    shown = prominence >= meter.prominence_db
+    groups = shown.sum(axis=1)
     levels = [usable[int(t)] for t in times]
-    found = learn.find_stops(times, groups, levels)
+    if args.dump:
+        with open(args.dump, "w", encoding="utf-8") as handle:
+            names = [f"{low:g}-{high:g}Hz" for low, high in meter.groups]
+            handle.write("time,level,groups_seen," + ",".join(names) + "\n")
+            for t, level, count, row in zip(times, levels, groups, prominence):
+                cells = ",".join("" if np.isnan(p) else f"{p:.1f}" for p in row)
+                handle.write(f"{_clock(t)},{level:.1f},{count},{cells}\n")
+        print(f"Wrote {len(times)} minutes to {args.dump}")
+    _print_tone_summary(meter.groups, shown, groups, args.max_groups)
+    found = learn.find_stops(
+        times,
+        groups,
+        levels,
+        max_groups=args.max_groups,
+        min_minutes=args.min_minutes,
+        level_drop_db=args.level_drop,
+    )
     if not found:
         print(f"No stretches found in {len(times)} minutes")
     print("start,end,minutes,level_drop_db,groups_around,groups_during,other_lines,verdict")
@@ -163,6 +194,10 @@ def main(argv=None):
     stops = commands.add_parser("find-stops", help="list likely stops from the saved spectra")
     stops.add_argument("--days", type=float, default=30, help="how far back to look")
     stops.add_argument("--out", help="write likely stops here, as a CSV for the baseline command")
+    stops.add_argument("--dump", help="write every minute's level and per-group tone prominence here")
+    stops.add_argument("--max-groups", type=int, default=1, help="a minute is quiet with this many groups or fewer")
+    stops.add_argument("--min-minutes", type=int, default=20, help="shortest stretch to report")
+    stops.add_argument("--level-drop", type=float, default=3.0, help="level fall (dB) needed for 'likely'")
     stops.set_defaults(func=_find_stops)
 
     archive = commands.add_parser("send-archive", help="upload older readings from a JSON lines file")

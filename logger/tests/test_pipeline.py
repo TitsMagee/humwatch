@@ -451,6 +451,27 @@ def test_missing_context_is_weak():
     assert learn.find_stops(times[200:260], groups[200:260], levels[200:260])[0]["verdict"] == "weak"
 
 
+def test_prominences_give_one_column_per_group(cfg):
+    from humwatch.fingerprint import ToneMeter
+
+    freqs = np.arange(30, 260.5, 0.5)
+    spectra = np.full((2, len(freqs)), -80.0)
+    spectra[0, freqs == 67.0] = -50.0
+    meter = ToneMeter(cfg, freqs)
+    table = learn.prominences(meter, spectra)
+    assert table.shape == (2, len(cfg["fingerprint"]["tone_groups"]))
+    assert table[0, 0] == pytest.approx(30.0)
+    assert list(learn.tones_by_prominence(meter, spectra)) == [1, 0]
+
+
+def test_find_stops_can_allow_tones_that_never_leave():
+    times, groups, levels = stop_data(groups_during=3)
+    levels[200:260] = -50.0
+    groups[groups == 4] = 6
+    assert learn.find_stops(times, groups, levels) == []
+    assert learn.find_stops(times, groups, levels, max_groups=3)[0]["verdict"] == "likely"
+
+
 def test_other_lines_ignores_the_tone_groups():
     freqs = np.arange(30, 260.5, 0.5)
     spectrum = np.full(len(freqs), -80.0)

@@ -252,9 +252,12 @@ export function backgroundAt(chart, seconds) {
   return level && typeof level.db === "number" ? { ...level, part, name: PART_NAMES[part] } : null;
 }
 
+export function hasReadings(chart) {
+  return Boolean(chart && Array.isArray(chart.l90) && chart.l90.some((db) => db !== null));
+}
+
 export function hasBackground(chart) {
-  return Boolean(chart && chart.background && (chart.background.day || chart.background.night)
-    && chart.l90 && chart.l90.some((db) => db !== null));
+  return Boolean(hasReadings(chart) && chart.background && (chart.background.day || chart.background.night));
 }
 
 // The latest minute against the background for this time of day, or failing that, against
@@ -361,8 +364,10 @@ export function aboveByPart(points) {
 }
 
 export function backgroundNote(chart, label) {
-  const { day, night } = chart.background;
-  const notes = day && night && day.from === "reference" && night.from === "reference"
+  const { day, night } = chart.background || {};
+  const notes = !day && !night
+    ? [`There's no background yet: that needs the level measured while ${label} was stopped.`]
+    : day && night && day.from === "reference" && night.from === "reference"
     ? [`Day and night share one background: ${backgroundSource(day, label)}, until enough stops are logged to tell them apart.`]
     : ["day", "night"].map((part) => {
     const level = chart.background[part];

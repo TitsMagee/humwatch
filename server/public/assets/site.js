@@ -2,7 +2,7 @@ import { DEFAULT_BAND_HZ, HumPlayer, humOnlyLevels, mixLevels, toneAmplitudes, t
 import { beatPairs, envelope, wobbleSentence } from "./wobble.js";
 import {
   aboveByPart, averageExcess, backgroundNote, capitalise, chartPoints, currentRun, dateOnly, dateTime, duration, figures,
-  hasBackground, isNight, liveAbove, longestRun, loudestExcess, readoutLabel, readoutNote, readoutValue, REFERENCE_LEVELS,
+  hasBackground, hasReadings, isNight, liveAbove, longestRun, loudestExcess, readoutLabel, readoutNote, readoutValue, REFERENCE_LEVELS,
   REFERENCE_NOTE, runClock,
   runningShare, signedDb, status, strongestTone, withRecent, hissNote,
 } from "./format.js";
@@ -254,13 +254,17 @@ let trendDays = 3;
 let trendKey = null;
 let showReferences = false;
 
-// The rollup's chart, brought up to the minute by the live file's recent readings
+// The rollup's chart, brought up to the minute by the live file's recent readings. The
+// current microphone comes first, with its level on its own until it has a background;
+// the earlier microphone's chart only stands in when the current one has no readings.
 function trendSource() {
-  if (hasBackground(history && history.chart)) {
-    return { chart: withRecent(history.chart, live && live.recent), earlier: false };
-  }
+  const current = history ? withRecent(history.chart, live && live.recent) : null;
   const old = history && history.earlier && history.earlier.chart;
-  return hasBackground(old) ? { chart: old, earlier: true } : null;
+  if (hasBackground(current)) return { chart: current, earlier: false };
+  if (hasReadings(current)) return { chart: current, earlier: false };
+  if (hasBackground(old)) return { chart: old, earlier: true };
+  if (hasReadings(old)) return { chart: old, earlier: true };
+  return null;
 }
 
 const siteFormats = new Map();
@@ -275,7 +279,8 @@ function renderTrend() {
   $("trend").hidden = !source;
   if (!source) return;
   const { chart } = source;
-  const key = `${$("trend-chart").clientWidth}:${trendDays}:${showReferences}:${history.generated_at}:${chart.until}`;
+  const bare = !hasBackground(chart);
+  const key = `${$("trend-chart").clientWidth}:${trendDays}:${showReferences}:${history.generated_at}:${chart.until}:${source.earlier}:${bare}`;
   if (key === trendKey) return;
   trendKey = key;
 
@@ -297,7 +302,9 @@ function renderTrend() {
   const said = [];
   if (parts.day) said.push([strong(signedDb(parts.day.db)), " above the daytime background"]);
   if (parts.night) said.push([strong(signedDb(parts.night.db)), " above the night-time background"]);
-  if (said.length) {
+  if (bare) {
+    figuresLine.textContent = `There's nothing to compare ${site.source_label} with yet, so this shows the hum band's level on its own.`;
+  } else if (said.length) {
     figuresLine.replaceChildren(
       `While ${site.source_label} was running, it sat on average `,
       ...said.flatMap((part, index) => (index ? [" and ", ...part] : part)),
@@ -306,14 +313,18 @@ function renderTrend() {
   } else {
     figuresLine.textContent = `${capitalise(site.source_label)} wasn't clearly running at any point in this time.`;
   }
-  $("key-reference").hidden = !showReferences;
-  $("reference-note").hidden = !showReferences;
+  // Without a background there's nothing to fill above or set reference lines against
+  $("reference-toggle").hidden = bare;
+  $("key-background").hidden = bare;
+  $("key-above").hidden = bare;
+  $("key-reference").hidden = !showReferences || bare;
+  $("reference-note").hidden = !showReferences || bare;
   $("reference-note").textContent = REFERENCE_NOTE;
   $("trend-note").textContent = `${source.earlier ? "These readings come from the earlier microphone, as the current one can't be compared with the background yet. " : ""}${backgroundNote(chart, site.source_label)}`;
-  drawTrend(chart, points, from, to, ended, `${$("trend-heading").textContent}. ${figuresLine.textContent}`);
+  drawTrend(chart, points, from, to, ended, bare, `${$("trend-heading").textContent}. ${figuresLine.textContent}`);
 }
 
-function drawTrend(chart, points, from, to, ended, summary) {
+function drawTrend(chart, points, from, to, ended, bare, summary) {
   const box = $("trend-chart");
   const tip = $("trend-tip");
   tip.hidden = true;
@@ -325,20 +336,19 @@ function drawTrend(chart, points, from, to, ended, summary) {
 
   const levels = points.flatMap((point) => [point.db, point.background && point.background.db])
     .filter((value) => typeof value === "number");
-  for (const part of ["day", "night"]) {
-    if (chart.background[part]) levels.push(chart.background[part].db);
-  }
-  const backgrounds = ["day", "night"].map((part) => chart.background[part]).filter(Boolean).map((level) => level.db);
+  const backgrounds = ["day", "night"].map((part) => chart.background && chart.background[part])
+    .filter(Boolean).map((level) => level.db);
+  levels.push(...backgrounds);
   const lo = Math.min(...levels) - 3;
   // With the reference lines on, leave room for the highest of them
-  const reach = showReferences ? Math.max(...backgrounds) + REFERENCE_LEVELS.at(-1).db + 4 : -Infinity;
+  const reach = showReferences && !bare ? Math.max(...backgrounds) + REFERENCE_LEVELS.at(-1).db + 4 : -Infinity;
   const hi = Math.max(Math.max(...levels) + 3, lo + 15, reach);
   const x = (t) => ((t - from) / (to - from)) * width;
   const y = (db) => top + ((height - top - bottom) * (hi - db)) / (hi - lo);
 
   const chartSvg = svg("svg", {
     viewBox: `0 0 ${width} ${height}`, class: "trend-svg", role: "img", tabindex: 0,
-    "aria-label": `${summary} Chart of the hum's level against the background. Use the arrow keys to step through it.`,
+    "aria-label": `${summary} Chart of the hum's level${bare ? "" : " against the background"}. Use the arrow keys to step through it.`,
   });
 
   // Night bands, and the name of each day under its daylight hours
@@ -401,7 +411,7 @@ function drawTrend(chart, points, from, to, ended, summary) {
     }
     return path;
   };
-  if (showReferences) {
+  if (showReferences && !bare) {
     const first = points.find((point) => point.background);
     REFERENCE_LEVELS.forEach((reference, index) => {
       chartSvg.append(svg("path", { class: "reference-line", d: stepPath(reference.db, false) }));
@@ -939,6 +949,8 @@ async function refreshHistory() {
     }
     // As if the rollup last ran ten minutes ago: the live minutes cover the rest
     history.chart = demoChart(now - 600);
+    // A new microphone with no stops logged and no baseline taken yet
+    if (demo === "bare") history.chart.background = { day: null, night: null };
   }
   if (history && demo === "earlier") {
     const lastT = history.generated_at - 1728000;

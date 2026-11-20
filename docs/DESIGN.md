@@ -118,7 +118,7 @@ Signatures are HMAC-SHA256 over the timestamp and the body's hash, and requests 
 
 ## Public pages
 
-`public/index.html` is a static page that reads `data/live.json`, `data/history.json` and `site.json`. It has no cookies, analytics or third-party requests. Add `?demo=on`, `off`, `unknown`, `fault`, `stale` or `none` to preview each state with sample data, which is always bannered.
+`public/index.html` is a static page that reads `data/live.json`, `data/history.json` and `site.json`. It has no cookies, analytics or third-party requests. Add `?demo=on`, `off`, `unknown`, `fault`, `stale`, `none` or `bare` (no background yet) to preview each state with sample data, which is always bannered.
 
 **The live readout** is the latest minute's hum-band L90 against the background for the time of day. L90 is used because passing sounds hardly move it, and it is the figure the rest of the page uses. The strongest tone's height above the background at its own pitch is given beside it, but it isn't the headline, as a single narrow tone doesn't compare with the band.
 

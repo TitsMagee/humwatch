@@ -48,7 +48,7 @@ venv/bin/humwatch run
 
 If your database was created before November 2026, run `server/migrations/2026-11-hiss.sql` on it once, before updating the logger, to add the hiss columns.
 
-To preview the page without any data, add `?demo=on` to its address. Replace `on` with `off`, `unknown`, `fault`, `stale` or `none` to see the other states.
+To preview the page without any data, add `?demo=on` to its address. Replace `on` with `off`, `unknown`, `fault`, `stale` or `none` to see the other states, or `bare` to see the chart before there's a background to compare with.
 
 ### Tests
 
@@ -76,7 +76,7 @@ Until there is a stop, `humwatch --config config.json interim-baseline` estimate
 
 The band's width decides every level, so readings over a different band don't compare, and a baseline only fits the band it was built over. A logger refuses a baseline from another band and stays at unknown until it has one. To change `analysis.band_hz`:
 
-1. Set the new `band_hz` and a new `mic_period` in `config.json`, and restart the logger. The page keeps showing the earlier mic period's figures, labelled, until the new one can be compared with the background.
+1. Set the new `band_hz` and a new `mic_period` in `config.json`, and restart the logger. The page keeps showing the earlier mic period's figures, labelled, until the new one can be compared with the background. The trend chart switches straight away, showing the new microphone's level on its own until there's a background to set it against.
 2. Build a baseline for the new band, with `interim-baseline` after a day or so, or `baseline --stops` once there's a stop logged on the new band.
 3. Run `learn` and add tone groups for the new frequencies, such as those between 260 and 450 Hz.
 

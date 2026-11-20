@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { beatPairs, envelope, wobbleSentence } from "../public/assets/wobble.js";
 import { humOnlyLevels, mixLevels, toneAmplitudes, tonesExplainLevel } from "../public/assets/audio.js";
 import {
-  aboveByPart, backgroundAt, backgroundNote, chartPoints, currentRun, duration, figures, hasBackground, isNight, liveAbove, withRecent, hissNote,
+  aboveByPart, backgroundAt, backgroundNote, chartPoints, currentRun, duration, figures, hasBackground, hasReadings, isNight, liveAbove, withRecent, hissNote,
   longestRun, readoutLabel, readoutValue, REFERENCE_LEVELS, runningShare, signedDb, status, strongestTone,
 } from "../public/assets/format.js";
 
@@ -282,6 +282,13 @@ test("a chart needs readings and a background to be worth drawing", () => {
   assert.equal(hasBackground(chart({ l90: [null, null] })), false);
   assert.equal(hasBackground(chart({ l90: [-50], background: { day: null, night: null } })), false);
   assert.equal(hasBackground(null), false);
+  assert.equal(hasBackground(chart({ l90: [-50], background: null })), false);
+});
+
+test("a chart with readings but no background can still be drawn bare", () => {
+  assert.equal(hasReadings(chart({ l90: [-50], background: { day: null, night: null } })), true);
+  assert.equal(hasReadings(chart({ l90: [null, null] })), false);
+  assert.equal(hasReadings(null), false);
 });
 
 test("the live figure compares with the background for the time of day", () => {
@@ -349,6 +356,8 @@ test("the background note says where each level came from", () => {
   const shared = backgroundNote(chart({ background: { day: reference, night: reference } }), "the mill");
   assert.match(shared, /^Day and night share one background/);
   assert.match(backgroundNote(chart({ background: { day: reference, night: null } }), "the mill"), /no night-time background yet/);
+  assert.match(backgroundNote(chart({ background: { day: null, night: null } }), "the mill"), /^There's no background yet: that needs the level measured while the mill was stopped\./);
+  assert.match(backgroundNote(chart({ background: null }), "the mill"), /^There's no background yet/);
 });
 
 test("reference lines are the BS 4142 benchmarks, highest last, each with a short label", () => {
